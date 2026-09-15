@@ -24,6 +24,7 @@ WebServer server(80);
 
 constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
 constexpr unsigned long VOLUME_WATCHDOG_MS = 400;
+constexpr uint16_t OTA_TIMEOUT_SECONDS = 60;
 const char *heldVolumeCommand = nullptr;
 unsigned long lastVolumeSignalMs = 0;
 unsigned long lastVolumeSendMs = 0;
@@ -225,6 +226,7 @@ void connectToWiFi() {
 void startOta() {
   ArduinoOTA.setHostname(OTA_HOSTNAME);
   ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.setTimeout(OTA_TIMEOUT_SECONDS);
   ArduinoOTA.begin();
 
   Serial.print("OTA ready. Hostname: ");
