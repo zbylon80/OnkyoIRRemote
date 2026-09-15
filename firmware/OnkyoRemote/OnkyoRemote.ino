@@ -22,6 +22,12 @@ const OnkyoCommand COMMANDS[] = {
 
 WebServer server(80);
 
+constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
+constexpr unsigned long VOLUME_WATCHDOG_MS = 400;
+const char *heldVolumeCommand = nullptr;
+unsigned long lastVolumeSignalMs = 0;
+unsigned long lastVolumeSendMs = 0;
+
 const char INDEX_PAGE[] PROGMEM = R"HTML(
 <!doctype html>
 <html lang="en">
@@ -32,7 +38,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #101010; color: #f5f2ed; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #101010; color: #f5f2ed; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     main { width: min(100%, 430px); min-height: 100vh; padding: 24px 18px 32px; background: #181818; }
     header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 28px; }
     h1 { margin: 0; font-size: 1.1rem; letter-spacing: .08em; }
@@ -78,6 +84,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
   <script>
     const status = document.getElementById('status');
     let holdTimer = null;
+    let heldVolumeCommand = null;
     let requestInFlight = false;
     function sendCommand(command) {
       if (requestInFlight) return;
@@ -87,15 +94,32 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
         .catch(() => { status.textContent = 'Could not reach the remote.'; })
         .finally(() => { requestInFlight = false; });
     }
-    function stopHolding() { if (holdTimer !== null) { clearInterval(holdTimer); holdTimer = null; } }
+    function postVolume(path, body = '') {
+      return fetch(path, { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body });
+    }
+    function stopHolding() {
+      if (holdTimer !== null) { clearInterval(holdTimer); holdTimer = null; }
+      if (heldVolumeCommand !== null) {
+        heldVolumeCommand = null;
+        postVolume('/volume/stop').catch(() => {});
+      }
+    }
     document.querySelectorAll('[data-command]').forEach((button) => button.addEventListener('click', () => sendCommand(button.dataset.command)));
     document.querySelectorAll('[data-source]').forEach((button) => button.addEventListener('click', () => {
       sendCommand(button.dataset.source);
     }));
     document.querySelectorAll('[data-hold-command]').forEach((button) => {
       button.addEventListener('pointerdown', (event) => {
-        event.preventDefault(); stopHolding(); sendCommand(button.dataset.holdCommand);
-        holdTimer = setInterval(() => sendCommand(button.dataset.holdCommand), 180);
+        event.preventDefault();
+        stopHolding();
+        const command = button.dataset.holdCommand;
+        heldVolumeCommand = command;
+        button.setPointerCapture(event.pointerId);
+        const direction = command === 'VOL+' ? 'up' : 'down';
+        postVolume('/volume/start', 'direction=' + direction)
+          .then((response) => { if (!response.ok) throw new Error('Volume failed'); if (heldVolumeCommand === command) status.textContent = command + ' active. Release to stop.'; })
+          .catch(() => { status.textContent = 'Could not reach the remote.'; stopHolding(); });
+        holdTimer = setInterval(() => postVolume('/volume/keepalive').catch(() => stopHolding()), 150);
       });
       button.addEventListener('contextmenu', (event) => event.preventDefault());
     });
@@ -113,6 +137,10 @@ void handleRoot() {
   server.send_P(200, "text/html", INDEX_PAGE);
 }
 
+void stopVolume() {
+  heldVolumeCommand = nullptr;
+}
+
 bool sendOnkyoCommand(const String &name) {
   for (const OnkyoCommand &command : COMMANDS) {
     if (name == command.name) {
@@ -126,11 +154,60 @@ bool sendOnkyoCommand(const String &name) {
 }
 
 void handleCommand() {
+  stopVolume();
   if (!server.hasArg("name") || !sendOnkyoCommand(server.arg("name"))) {
     server.send(400, "application/json", "{\"ok\":false}");
     return;
   }
   server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleVolumeStart() {
+  if (!server.hasArg("direction")) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+
+  const String direction = server.arg("direction");
+  heldVolumeCommand = direction == "up" ? "VOL+" : direction == "down" ? "VOL-" : nullptr;
+  if (heldVolumeCommand == nullptr || !sendOnkyoCommand(heldVolumeCommand)) {
+    stopVolume();
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+
+  lastVolumeSignalMs = millis();
+  lastVolumeSendMs = lastVolumeSignalMs;
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleVolumeKeepalive() {
+  if (heldVolumeCommand != nullptr) {
+    lastVolumeSignalMs = millis();
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleVolumeStop() {
+  stopVolume();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void repeatHeldVolume() {
+  if (heldVolumeCommand == nullptr) {
+    return;
+  }
+
+  const unsigned long now = millis();
+  if (now - lastVolumeSignalMs > VOLUME_WATCHDOG_MS) {
+    stopVolume();
+    return;
+  }
+
+  if (now - lastVolumeSendMs >= VOLUME_REPEAT_INTERVAL_MS) {
+    sendOnkyoCommand(heldVolumeCommand);
+    lastVolumeSendMs = now;
+  }
 }
 
 void connectToWiFi() {
@@ -170,6 +247,9 @@ void setup() {
 
   server.on("/", HTTP_GET, handleRoot);
   server.on("/command", HTTP_POST, handleCommand);
+  server.on("/volume/start", HTTP_POST, handleVolumeStart);
+  server.on("/volume/keepalive", HTTP_POST, handleVolumeKeepalive);
+  server.on("/volume/stop", HTTP_POST, handleVolumeStop);
   server.begin();
 
   Serial.println("HTTP server started.");
@@ -178,4 +258,5 @@ void setup() {
 void loop() {
   ArduinoOTA.handle();
   server.handleClient();
+  repeatHeldVolume();
 }
