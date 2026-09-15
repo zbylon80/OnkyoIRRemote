@@ -52,7 +52,6 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     .volume, .sources { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .volume button { min-height: 72px; font-size: 2rem; }
     .mute { width: 100%; margin-top: 10px; }
-    .status { min-height: 20px; margin: 18px 0 0; color: #d6d0c8; font-size: .84rem; text-align: center; }
     .note { text-align: center; }
     @media (min-width: 431px) { main { min-height: auto; border-radius: 28px; box-shadow: 0 18px 50px #0008; } }
   </style>
@@ -78,11 +77,9 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
       <button class="source" type="button" data-source="TUNER">TUNER</button>
       <button class="source" type="button" data-source="VIDEO-1">VIDEO-1</button>
     </div>
-    <p id="status" class="status" aria-live="polite">Ready to send commands.</p>
     <p class="note">The receiver does not report its actual state.</p>
   </main>
   <script>
-    const status = document.getElementById('status');
     let holdTimer = null;
     let heldVolumeCommand = null;
     let requestInFlight = false;
@@ -90,8 +87,8 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
       if (requestInFlight) return;
       requestInFlight = true;
       fetch('/command', { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'name=' + encodeURIComponent(command) })
-        .then((response) => { if (!response.ok) throw new Error('Command failed'); status.textContent = command + ' command sent.'; })
-        .catch(() => { status.textContent = 'Could not reach the remote.'; })
+        .then((response) => { if (!response.ok) throw new Error('Command failed'); })
+        .catch(() => {})
         .finally(() => { requestInFlight = false; });
     }
     function postVolume(path, body = '') {
@@ -117,8 +114,8 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
         button.setPointerCapture(event.pointerId);
         const direction = command === 'VOL+' ? 'up' : 'down';
         postVolume('/volume/start', 'direction=' + direction)
-          .then((response) => { if (!response.ok) throw new Error('Volume failed'); if (heldVolumeCommand === command) status.textContent = command + ' active. Release to stop.'; })
-          .catch(() => { status.textContent = 'Could not reach the remote.'; stopHolding(); });
+          .then((response) => { if (!response.ok) throw new Error('Volume failed'); })
+          .catch(() => { stopHolding(); });
         holdTimer = setInterval(() => postVolume('/volume/keepalive').catch(() => stopHolding()), 150);
       });
       button.addEventListener('contextmenu', (event) => event.preventDefault());
