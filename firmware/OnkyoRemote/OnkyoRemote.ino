@@ -43,7 +43,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     main { width: min(100%, 430px); min-height: 100vh; padding: 24px 18px 32px; background: #181818; }
     header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 28px; }
     h1 { margin: 0; font-size: 1.1rem; letter-spacing: .08em; }
-    header p, .note { margin: 4px 0 0; color: #aaa6a0; font-size: .8rem; }
+    header p { margin: 4px 0 0; color: #aaa6a0; font-size: .8rem; }
     .connected { color: #91d27a; }
     button { min-height: 56px; border: 0; border-radius: 15px; background: #292929; color: inherit; font: inherit; font-size: 1rem; font-weight: 650; cursor: pointer; touch-action: manipulation; }
     button:active { transform: scale(.98); background: #393939; }
@@ -53,7 +53,6 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     .volume, .sources { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .volume button { min-height: 72px; font-size: 2rem; }
     .mute { width: 100%; margin-top: 10px; }
-    .note { text-align: center; }
     @media (min-width: 431px) { main { min-height: auto; border-radius: 28px; box-shadow: 0 18px 50px #0008; } }
   </style>
 </head>
@@ -78,7 +77,6 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
       <button class="source" type="button" data-source="TUNER">TUNER</button>
       <button class="source" type="button" data-source="VIDEO-1">VIDEO-1</button>
     </div>
-    <p class="note">The receiver does not report its actual state.</p>
   </main>
   <script>
     let holdTimer = null;
