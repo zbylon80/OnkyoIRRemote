@@ -1,0 +1,7 @@
+# Local network and OTA credentials. Never commit this file.
+firmware/OnkyoRemote/WiFiConfig.h
+
+# Arduino build output
+*.bin
+*.elf
+*.map
