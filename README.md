@@ -90,9 +90,9 @@ Skieruj nadajnik IR w stronę czujnika amplitunera. W Basic przyciski `◀` i `�
 
 ## 8. Programowanie funkcji Advanced na nowym urządzeniu
 
-Kody Advanced są specyficzne dla konkretnego pilota. Aktualnie ekran nauki jest celowo ukryty po zakończeniu konfiguracji.
+Pełny zestaw 46 kodów RC-209S jest wpisany na stałe w firmware. Na nowym lub wyczyszczonym ESP32 wystarczy skonfigurować Wi-Fi i wgrać `OnkyoRemote.ino` — panel Advanced działa od razu, bez oryginalnego pilota i bez procedury nauki.
 
-Na nowym ESP32:
+Tryb nauki pozostaje w kodzie tylko na wypadek przyszłej, świadomej zmiany przypisania. Ekran jest celowo ukryty w zwykłym użyciu. Aby go tymczasowo włączyć:
 
 1. W `OnkyoRemote.ino` w funkcji `setup()` dodaj tymczasowo:
 
@@ -102,7 +102,7 @@ Na nowym ESP32:
 
 2. Wgraj firmware i otwórz `http://ADRES_ESP32/remotelearn`.
 3. Wybierz funkcję na układzie ekranowym, skieruj oryginalny RC-209S na odbiornik IR i naciśnij odpowiadający przycisk.
-4. Zielony znacznik oznacza zapisany kod. Kody pozostają w pamięci ESP32 po restarcie.
+4. Zielony znacznik oznacza zapisany kod. Taki kod nadpisuje odpowiadającą mu wartość wpisaną na stałe w firmware i pozostaje w pamięci ESP32 po restarcie.
 5. Usuń lub ponownie zakomentuj wskazaną linię, wgraj firmware ponownie i używaj panelu Advanced.
 
 Podczas nauki nadajnik IR ESP32 jest blokowany, aby amplituner nie otrzymał przypadkowej komendy.
@@ -123,7 +123,7 @@ Jeśli aktualizacja OTA nie powiedzie się, uruchom ESP32 ponownie i spróbuj je
 | ESP32 świeci, ale nie odpowiada | naciśnij `EN` / `RESET`, poczekaj na połączenie Wi-Fi |
 | Amplituner nie reaguje | kierunek nadajnika, przewód `GPIO26`, wspólna masa |
 | Nie działa odczyt z oryginalnego pilota | odbiornik na `GPIO27`, zasilanie `3V3`, wspólna masa |
-| Funkcja Advanced nie działa | naucz ją ponownie z oryginalnego pilota |
+| Funkcja Advanced nie działa | wgraj ponownie aktualny firmware; sprawdź też nadajnik IR i jego kierunek |
 
 Pełna mapa kodów bieżącej instalacji znajduje się w sekcji [Mapa zapisanych kodów IR](#11-mapa-zapisanych-kodów-ir--saved-ir-code-map).
 
@@ -207,9 +207,9 @@ Point the IR transmitter toward the receiver on the amplifier. In Basic, the `�
 
 ## 8. Learn Advanced functions on a new device
 
-Advanced codes are specific to the physical remote. The learning page is intentionally hidden after setup.
+The complete set of 46 RC-209S codes is hardcoded in the firmware. On a new or erased ESP32, simply configure Wi-Fi and upload `OnkyoRemote.ino` — the Advanced panel works immediately, without the original remote or a learning procedure.
 
-For a new ESP32:
+Learning remains in the source only for a deliberate future reassignment. Its page is intentionally hidden in normal use. To enable it temporarily:
 
 1. Temporarily add this line in `setup()` in `OnkyoRemote.ino`:
 
@@ -219,7 +219,7 @@ For a new ESP32:
 
 2. Upload the firmware and open `http://ESP32_IP/remotelearn`.
 3. Select a function on the layout, aim the original RC-209S at the IR receiver, and press the matching physical button.
-4. A green mark means the code was saved. Codes persist through restarts.
+4. A green mark means the code was saved. It overrides the matching firmware value and persists in ESP32 storage through restarts.
 5. Remove or comment the line again, re-upload, and use the Advanced panel.
 
 The ESP32 IR transmitter is disabled while learning, so the amplifier cannot receive an accidental command.
@@ -240,15 +240,15 @@ If OTA fails, restart the ESP32 and try again. USB remains the most reliable rec
 | ESP32 is powered but unreachable | press `EN` / `RESET`, then wait for Wi-Fi reconnect |
 | The amplifier does not react | transmitter direction, `GPIO26` wire, common ground |
 | The original remote cannot be read | receiver on `GPIO27`, `3V3` power, common ground |
-| An Advanced function does not work | learn the function from the original remote again |
+| An Advanced function does not work | re-upload the current firmware; also check the IR transmitter and its direction |
 
 The complete code map for this installation is in [Saved IR code map](#11-mapa-zapisanych-kodów-ir--saved-ir-code-map).
 
 ## 11. Mapa zapisanych kodów IR / Saved IR code map
 
-Poniższa tabela jest kopią aktualnych przypisań odczytanych z pamięci ESP32. `built-in` oznacza kod wpisany w firmware, `legacy-learned` — kod zapisany przez wcześniejszą wersję nauki, a `learned` — pełny zapis z obecnego trybu nauki. Wartości szesnastkowe mają przedrostek `0x`.
+Poniższa tabela jest kompletną konfiguracją wpisaną na stałe w firmware. Kolumna `Origin` opisuje wyłącznie historyczne źródło pozyskania danego kodu; po aktualizacji wszystkie wartości są częścią firmware. Wartości szesnastkowe mają przedrostek `0x`.
 
-The table below is a copy of the current assignments read from ESP32 storage. `built-in` means a firmware default, `legacy-learned` was saved by an earlier learning version, and `learned` is a full capture from the current learning mode. Hexadecimal values use the `0x` prefix.
+The table below is the complete configuration hardcoded in the firmware. The `Origin` column only records how each code was originally acquired; after this update, every value is part of the firmware. Hexadecimal values use the `0x` prefix.
 
 | Function | Origin | Protocol | Address | Command | Bits |
 | --- | --- | --- | --- | --- | --- |

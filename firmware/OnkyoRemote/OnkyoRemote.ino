@@ -15,7 +15,10 @@ struct RemoteFunction {
   const char *label;
   const char *group;
   const char *preferenceKey;
-  uint8_t defaultValue;
+  decode_type_t hardcodedProtocol;
+  uint16_t hardcodedAddress;
+  uint16_t hardcodedCommand;
+  uint8_t hardcodedBits;
   uint8_t learnedValue;
   decode_type_t learnedProtocol = UNKNOWN;
   uint16_t learnedAddress = 0;
@@ -23,55 +26,55 @@ struct RemoteFunction {
   uint8_t learnedBits = 0;
 };
 
-// Every physical button on the RC-209S. Known Basic values remain available;
-// the rest are learned from the original remote and retained in ESP32 NVS.
+// Complete RC-209S configuration. This is the single source of truth for the
+// current remote; every command works immediately after flashing a new ESP32.
 RemoteFunction REMOTE_FUNCTIONS[] = {
-    {"POWER", "POWER", "AMPLITUNER", "irPower", 0x04, 0},
-    {"SLEEP", "SLEEP", "AMPLITUNER", "irSleep", 0, 0},
-    {"SPK-MAIN", "SPEAKERS MAIN", "AMPLITUNER", "irSpkMain", 0, 0},
-    {"SPK-REMOTE", "SPEAKERS REMOTE", "AMPLITUNER", "irSpkRemote", 0, 0},
-    {"SIMUL", "SIMUL SOURCE", "AMPLITUNER", "irSimul", 0, 0},
-    {"SIMUL-UP", "SIMUL SOURCE UP", "AMPLITUNER", "irSimulUp", 0, 0},
-    {"SIMUL-DOWN", "SIMUL SOURCE DOWN", "AMPLITUNER", "irSimulDown", 0, 0},
-    {"TUNER", "TUNER", "WEJŚCIA", "irTuner", 0x0B, 0},
-    {"PHONO", "PHONO", "WEJŚCIA", "irPhono", 0x0A, 0},
-    {"CD", "CD", "WEJŚCIA", "irCd", 0x09, 0},
-    {"DIRECT", "DIRECT", "WEJŚCIA", "irDirect", 0, 0},
-    {"VIDEO-1", "VIDEO-1", "WEJŚCIA", "irVideo1", 0x0F, 0},
-    {"VIDEO-2", "VIDEO-2", "WEJŚCIA", "irVideo2", 0, 0},
-    {"TAPE-1", "TAPE-1", "WEJŚCIA", "irTape1", 0x08, 0},
-    {"TAPE-2", "TAPE-2", "WEJŚCIA", "irTape2", 0, 0},
-    {"CLASS", "CLASS", "TUNER", "irClass", 0, 0},
-    {"PRESET-", "PRESET ◀", "TUNER", "irPresetM", 0, 0},
-    {"PRESET+", "PRESET ▶", "TUNER", "irPresetP", 0, 0},
-    {"DECK-A-REV", "◀", "DECK A", "irDeckARev", 0, 0},
-    {"DECK-A-PLAY", "▶", "DECK A", "irDeckAPlay", 0, 0},
-    {"DECK-A-REC", "REC / PAUSE", "DECK A", "irDeckARec", 0, 0},
-    {"DECK-A-STOP", "STOP", "DECK A", "irDeckAStop", 0, 0},
-    {"DECK-A-REW", "REW", "DECK A", "irDeckARew", 0, 0},
-    {"DECK-A-FF", "FF", "DECK A", "irDeckAFf", 0, 0},
-    {"DECK-B-REV", "◀", "DECK B", "irDeckBRev", 0, 0},
-    {"DECK-B-PLAY", "▶", "DECK B", "irDeckBPlay", 0, 0},
-    {"DECK-B-REC", "REC / PAUSE", "DECK B", "irDeckBRec", 0, 0},
-    {"DECK-B-STOP", "STOP", "DECK B", "irDeckBStop", 0, 0},
-    {"DECK-B-REW", "REW", "DECK B", "irDeckBRew", 0, 0},
-    {"DECK-B-FF", "FF", "DECK B", "irDeckBFf", 0, 0},
-    {"CD-PAUSE", "PAUSE", "CD", "irCdPause", 0, 0},
-    {"CD-PLAY", "PLAY", "CD", "irCdPlay", 0, 0},
-    {"CD-STOP", "STOP", "CD", "irCdStop", 0, 0},
-    {"CD-PREV", "◀◀", "CD", "irCdPrev", 0, 0},
-    {"CD-NEXT", "▶▶", "CD", "irCdNext", 0, 0},
-    {"CENTER-ON", "CENTER OFF/ON", "DŹWIĘK", "irCenterOn", 0, 0},
-    {"CENTER-UP", "CENTER UP", "DŹWIĘK", "irCenterUp", 0, 0},
-    {"CENTER-DOWN", "CENTER DOWN", "DŹWIĘK", "irCenterDown", 0, 0},
-    {"REAR-UP", "REAR LEVEL UP", "DŹWIĘK", "irRearUp", 0, 0},
-    {"REAR-DOWN", "REAR LEVEL DOWN", "DŹWIĘK", "irRearDown", 0, 0},
-    {"MUTE", "MUTING", "DŹWIĘK", "irMute", 0x05, 0},
-    {"VOL+", "VOLUME UP", "DŹWIĘK", "irVolP", 0x02, 0},
-    {"VOL-", "VOLUME DOWN", "DŹWIĘK", "irVolM", 0x03, 0},
-    {"SURROUND", "SURROUND MODE", "DŹWIĘK", "irSurround", 0, 0},
-    {"DELAY", "DELAY TIME", "DŹWIĘK", "irDelay", 0, 0},
-    {"TEST", "TEST", "DŹWIĘK", "irTest", 0, 0},
+    {"POWER", "POWER", "AMPLITUNER", "irPower", NEC, 0x6DD2, 0x04, 32, 0},
+    {"SLEEP", "SLEEP", "AMPLITUNER", "irSleep", NEC, 0x6DD2, 0x5D, 32, 0},
+    {"SPK-MAIN", "SPEAKERS MAIN", "AMPLITUNER", "irSpkMain", NEC, 0x6DD2, 0x59, 32, 0},
+    {"SPK-REMOTE", "SPEAKERS REMOTE", "AMPLITUNER", "irSpkRemote", NEC, 0x6DD2, 0x5A, 32, 0},
+    {"SIMUL", "SIMUL SOURCE", "AMPLITUNER", "irSimul", NEC, 0x6DD2, 0xCC, 32, 0},
+    {"SIMUL-UP", "SIMUL SOURCE UP", "AMPLITUNER", "irSimulUp", NEC, 0x6DD2, 0xC2, 32, 0},
+    {"SIMUL-DOWN", "SIMUL SOURCE DOWN", "AMPLITUNER", "irSimulDown", NEC, 0x6DD2, 0xC3, 32, 0},
+    {"TUNER", "TUNER", "WEJŚCIA", "irTuner", NEC, 0x6DD2, 0x0B, 32, 0},
+    {"PHONO", "PHONO", "WEJŚCIA", "irPhono", NEC, 0x6DD2, 0x0A, 32, 0},
+    {"CD", "CD", "WEJŚCIA", "irCd", NEC, 0x6DD2, 0x09, 32, 0},
+    {"DIRECT", "DIRECT", "WEJŚCIA", "irDirect", NEC, 0x6DD2, 0x44, 32, 0},
+    {"VIDEO-1", "VIDEO-1", "WEJŚCIA", "irVideo1", NEC, 0x6DD2, 0x0F, 32, 0},
+    {"VIDEO-2", "VIDEO-2", "WEJŚCIA", "irVideo2", NEC, 0x6DD2, 0x0E, 32, 0},
+    {"TAPE-1", "TAPE-1", "WEJŚCIA", "irTape1", NEC, 0x6DD2, 0x08, 32, 0},
+    {"TAPE-2", "TAPE-2", "WEJŚCIA", "irTape2", NEC, 0x6DD2, 0x07, 32, 0},
+    {"CLASS", "CLASS", "TUNER", "irClass", NEC, 0x6DD2, 0x4A, 32, 0},
+    {"PRESET-", "PRESET ◀", "TUNER", "irPresetM", NEC, 0x6DD2, 0x01, 32, 0},
+    {"PRESET+", "PRESET ▶", "TUNER", "irPresetP", NEC, 0x6DD2, 0x00, 32, 0},
+    {"DECK-A-REV", "◀", "DECK A", "irDeckARev", NEC, 0x6DD2, 0x4F, 32, 0},
+    {"DECK-A-PLAY", "▶", "DECK A", "irDeckAPlay", PULSE_DISTANCE, 0x0000, 0x0000, 7, 0},
+    {"DECK-A-REC", "REC / PAUSE", "DECK A", "irDeckARec", NEC, 0x6DD2, 0x50, 32, 0},
+    {"DECK-A-STOP", "STOP", "DECK A", "irDeckAStop", NEC, 0x6DD2, 0x4D, 32, 0},
+    {"DECK-A-REW", "REW", "DECK A", "irDeckARew", NEC, 0x6DD2, 0x52, 32, 0},
+    {"DECK-A-FF", "FF", "DECK A", "irDeckAFf", NEC, 0x6DD2, 0x51, 32, 0},
+    {"DECK-B-REV", "◀", "DECK B", "irDeckBRev", NEC, 0x6DD2, 0x16, 32, 0},
+    {"DECK-B-PLAY", "▶", "DECK B", "irDeckBPlay", NEC, 0x6DD2, 0x15, 32, 0},
+    {"DECK-B-REC", "REC / PAUSE", "DECK B", "irDeckBRec", NEC, 0x6DD2, 0x18, 32, 0},
+    {"DECK-B-STOP", "STOP", "DECK B", "irDeckBStop", NEC, 0x6DD2, 0x13, 32, 0},
+    {"DECK-B-REW", "REW", "DECK B", "irDeckBRew", NEC, 0x6DD2, 0x1A, 32, 0},
+    {"DECK-B-FF", "FF", "DECK B", "irDeckBFf", NEC, 0x6DD2, 0x19, 32, 0},
+    {"CD-PAUSE", "PAUSE", "CD", "irCdPause", NEC, 0x6DD2, 0x1F, 32, 0},
+    {"CD-PLAY", "PLAY", "CD", "irCdPlay", NEC, 0x6DD2, 0x1B, 32, 0},
+    {"CD-STOP", "STOP", "CD", "irCdStop", NEC, 0x6DD2, 0x1C, 32, 0},
+    {"CD-PREV", "◀◀", "CD", "irCdPrev", NEC, 0x6DD2, 0x1E, 32, 0},
+    {"CD-NEXT", "▶▶", "CD", "irCdNext", NEC, 0x6DD2, 0x1D, 32, 0},
+    {"CENTER-ON", "CENTER OFF/ON", "DŹWIĘK", "irCenterOn", NEC, 0x6DD2, 0x98, 32, 0},
+    {"CENTER-UP", "CENTER UP", "DŹWIĘK", "irCenterUp", NEC, 0x6DD2, 0x80, 32, 0},
+    {"CENTER-DOWN", "CENTER DOWN", "DŹWIĘK", "irCenterDown", NEC, 0x6DD2, 0x81, 32, 0},
+    {"REAR-UP", "REAR LEVEL UP", "DŹWIĘK", "irRearUp", NEC, 0x6DD2, 0x42, 32, 0},
+    {"REAR-DOWN", "REAR LEVEL DOWN", "DŹWIĘK", "irRearDown", NEC, 0x6DD2, 0x43, 32, 0},
+    {"MUTE", "MUTING", "DŹWIĘK", "irMute", NEC, 0x6DD2, 0x05, 32, 0},
+    {"VOL+", "VOLUME UP", "DŹWIĘK", "irVolP", NEC, 0x6DD2, 0x02, 32, 0},
+    {"VOL-", "VOLUME DOWN", "DŹWIĘK", "irVolM", NEC, 0x6DD2, 0x03, 32, 0},
+    {"SURROUND", "SURROUND MODE", "DŹWIĘK", "irSurround", NEC, 0x6DD2, 0x4C, 32, 0},
+    {"DELAY", "DELAY TIME", "DŹWIĘK", "irDelay", NEC, 0x6DD2, 0x53, 32, 0},
+    {"TEST", "TEST", "DŹWIĘK", "irTest", NEC, 0x6DD2, 0x9A, 32, 0},
 };
 
 WebServer server(80);
@@ -262,8 +265,8 @@ String renderRemoteButtons(bool learning) {
     page += F("<button type=\"button\" data-id=\"");
     page += function.id;
     page += F("\" class=\"");
-    if (!learning && function.defaultValue == 0 && !hasLearnedCode(function)) page += F("missing");
-    if (learning && (function.defaultValue != 0 || hasLearnedCode(function))) page += F("saved");
+    if (!learning && function.hardcodedProtocol == UNKNOWN && !hasLearnedCode(function)) page += F("missing");
+    if (learning && (function.hardcodedProtocol != UNKNOWN || hasLearnedCode(function))) page += F("saved");
     page += F("\">");
     page += function.label;
     page += F("</button>");
@@ -276,8 +279,8 @@ String advancedButton(const char *id, bool learning = false) {
   RemoteFunction *function = findRemoteFunction(id);
   if (function == nullptr) return String();
   String button = F("<button type=\"button\" class=\"key ");
-  if (learning && (function->defaultValue != 0 || hasLearnedCode(*function))) button += F("saved ");
-  if (!learning && function->defaultValue == 0 && !hasLearnedCode(*function)) button += F("unlearned ");
+  if (learning && (function->hardcodedProtocol != UNKNOWN || hasLearnedCode(*function))) button += F("saved ");
+  if (!learning && function->hardcodedProtocol == UNKNOWN && !hasLearnedCode(*function)) button += F("unlearned ");
   if (strcmp(id, "POWER") == 0) button += F("power-key ");
   button += F("\" data-id=\"");
   button += id;
@@ -370,12 +373,19 @@ bool sendOnkyoCommand(const String &name) {
       Serial.println(name);
       return IrSender.write(&learnedData, NO_REPEATS) != 0;
     }
-    const uint8_t value = function->learnedValue != 0 ? function->learnedValue : function->defaultValue;
-    if (value == 0) return false;
-    Serial.print(">>> Sending ");
+    if (function->hardcodedProtocol == UNKNOWN) return false;
+    Serial.print(">>> Sending hardcoded ");
     Serial.println(name);
-    IrSender.sendNEC(ONKYO_ADDRESS, value, 0);
-    return true;
+    if (function->hardcodedProtocol == NEC) {
+      IrSender.sendNEC(function->hardcodedAddress, function->hardcodedCommand, 0);
+      return true;
+    }
+    IRData hardcodedData{};
+    hardcodedData.protocol = function->hardcodedProtocol;
+    hardcodedData.address = function->hardcodedAddress;
+    hardcodedData.command = function->hardcodedCommand;
+    hardcodedData.numberOfBits = function->hardcodedBits;
+    return IrSender.write(&hardcodedData, NO_REPEATS) != 0;
   }
   return false;
 }
