@@ -1,5 +1,6 @@
 #include <ArduinoOTA.h>
 #include <IRremote.hpp>
+#include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h>
 
@@ -21,11 +22,15 @@ const OnkyoCommand COMMANDS[] = {
 };
 
 WebServer server(80);
+Preferences preferences;
 
 constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
 constexpr unsigned long VOLUME_WATCHDOG_MS = 400;
 constexpr uint16_t OTA_TIMEOUT_SECONDS = 60;
 const char *heldVolumeCommand = nullptr;
+const char *learningCommand = nullptr;
+uint8_t presetPreviousCommand = 0;
+uint8_t presetNextCommand = 0;
 unsigned long lastVolumeSignalMs = 0;
 unsigned long lastVolumeSendMs = 0;
 
@@ -35,7 +40,13 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Onkyo Remote</title>
+  <meta name="theme-color" content="#101010">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <title>Pilot Onkyo</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     * { box-sizing: border-box; }
@@ -53,6 +64,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     .volume, .sources { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .volume button { min-height: 72px; font-size: 2rem; }
     .mute { width: 100%; margin-top: 10px; }
+    .learn button { min-height: 44px; font-size: .8rem; }
     @media (min-width: 431px) { main { min-height: auto; border-radius: 28px; box-shadow: 0 18px 50px #0008; } }
   </style>
 </head>
@@ -111,7 +123,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
         const command = button.dataset.holdCommand;
         heldVolumeCommand = command;
         button.setPointerCapture(event.pointerId);
-        const direction = command === 'VOL+' ? 'up' : 'down';
+        const direction = command === 'VOL+' ? 'up' : command === 'VOL-' ? 'down' : command === 'TUNING+' ? 'tuning-up' : 'tuning-down';
         postVolume('/volume/start', 'direction=' + direction)
           .then((response) => { if (!response.ok) throw new Error('Volume failed'); })
           .catch(() => { stopHolding(); });
@@ -129,8 +141,44 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
 </html>
 )HTML";
 
+const char PWA_MANIFEST[] PROGMEM = R"JSON(
+{
+  "name": "Pilot Onkyo",
+  "short_name": "Onkyo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101010",
+  "theme_color": "#101010",
+  "icons": [{
+    "src": "/icon.svg",
+    "sizes": "any",
+    "type": "image/svg+xml",
+    "purpose": "any maskable"
+  }]
+}
+)JSON";
+
+const char PWA_ICON[] PROGMEM = R"SVG(
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="38" fill="#101010"/>
+  <rect x="48" y="27" width="96" height="138" rx="14" fill="#242424" stroke="#e0d8ca" stroke-width="5"/>
+  <circle cx="96" cy="55" r="10" fill="#d8342b"/>
+  <rect x="67" y="80" width="58" height="12" rx="6" fill="#e0d8ca"/>
+  <rect x="67" y="105" width="58" height="12" rx="6" fill="#e0d8ca"/>
+  <rect x="67" y="130" width="58" height="12" rx="6" fill="#e0d8ca"/>
+</svg>
+)SVG";
+
 void handleRoot() {
   server.send_P(200, "text/html", INDEX_PAGE);
+}
+
+void handleManifest() {
+  server.send_P(200, "application/manifest+json", PWA_MANIFEST);
+}
+
+void handleIcon() {
+  server.send_P(200, "image/svg+xml", PWA_ICON);
 }
 
 void stopVolume() {
@@ -138,6 +186,13 @@ void stopVolume() {
 }
 
 bool sendOnkyoCommand(const String &name) {
+  const uint8_t learnedValue = name == "PRESET-" ? presetPreviousCommand : name == "PRESET+" ? presetNextCommand : 0;
+  if (learnedValue != 0) {
+    Serial.print(">>> Sending ");
+    Serial.println(name);
+    IrSender.sendNEC(ONKYO_ADDRESS, learnedValue, 0);
+    return true;
+  }
   for (const OnkyoCommand &command : COMMANDS) {
     if (name == command.name) {
       Serial.print(">>> Sending ");
@@ -147,6 +202,54 @@ bool sendOnkyoCommand(const String &name) {
     }
   }
   return false;
+}
+
+void handleLearnStart() {
+  stopVolume();
+  if (!server.hasArg("name")) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+
+  const String name = server.arg("name");
+  learningCommand = name == "PRESET-" ? "PRESET-" : name == "PRESET+" ? "PRESET+" : nullptr;
+  if (learningCommand == nullptr) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleLearnStatus() {
+  if (learningCommand != nullptr) {
+    server.send(200, "application/json", "{\"learning\":true}");
+    return;
+  }
+  server.send(200, "application/json", "{\"learning\":false,\"message\":\"Tuner command saved.\"}");
+}
+
+void processLearnedCommand() {
+  if (learningCommand == nullptr || !IrReceiver.decode()) {
+    return;
+  }
+
+  const IRData &data = IrReceiver.decodedIRData;
+  if (data.protocol == NEC && data.address == ONKYO_ADDRESS && data.command != 0) {
+    const uint8_t value = static_cast<uint8_t>(data.command);
+    if (String(learningCommand) == "PRESET-") {
+      presetPreviousCommand = value;
+      preferences.putUChar("presetPrev", value);
+    } else {
+      presetNextCommand = value;
+      preferences.putUChar("presetNext", value);
+    }
+    Serial.print(">>> Learned ");
+    Serial.print(learningCommand);
+    Serial.print(" = 0x");
+    Serial.println(value, HEX);
+    learningCommand = nullptr;
+  }
+  IrReceiver.resume();
 }
 
 void handleCommand() {
@@ -165,7 +268,8 @@ void handleVolumeStart() {
   }
 
   const String direction = server.arg("direction");
-  heldVolumeCommand = direction == "up" ? "VOL+" : direction == "down" ? "VOL-" : nullptr;
+  heldVolumeCommand = direction == "up" ? "VOL+" : direction == "down" ? "VOL-"
+                      : direction == "tuning-up" ? "TUNING+" : direction == "tuning-down" ? "TUNING-" : nullptr;
   if (heldVolumeCommand == nullptr || !sendOnkyoCommand(heldVolumeCommand)) {
     stopVolume();
     server.send(400, "application/json", "{\"ok\":false}");
@@ -238,15 +342,22 @@ void setup() {
   // Retain the known-working IR setup: transmitter on GPIO26, receiver on GPIO27.
   IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
   IrSender.begin(IR_SEND_PIN);
+  preferences.begin("onkyo-remote", false);
+  presetPreviousCommand = preferences.getUChar("presetPrev", 0);
+  presetNextCommand = preferences.getUChar("presetNext", 0);
 
   connectToWiFi();
   startOta();
 
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/manifest.webmanifest", HTTP_GET, handleManifest);
+  server.on("/icon.svg", HTTP_GET, handleIcon);
   server.on("/command", HTTP_POST, handleCommand);
   server.on("/volume/start", HTTP_POST, handleVolumeStart);
   server.on("/volume/keepalive", HTTP_POST, handleVolumeKeepalive);
   server.on("/volume/stop", HTTP_POST, handleVolumeStop);
+  server.on("/learn/start", HTTP_POST, handleLearnStart);
+  server.on("/learn/status", HTTP_GET, handleLearnStatus);
   server.begin();
 
   Serial.println("HTTP server started.");
@@ -256,4 +367,5 @@ void loop() {
   ArduinoOTA.handle();
   server.handleClient();
   repeatHeldVolume();
+  processLearnedCommand();
 }
