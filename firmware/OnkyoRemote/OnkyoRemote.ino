@@ -81,7 +81,9 @@ WebServer server(80);
 Preferences preferences;
 
 constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
-constexpr unsigned long VOLUME_WATCHDOG_MS = 400;
+// Mobile browsers and Wi-Fi can delay a keepalive briefly.  Keep a finite
+// watchdog so a lost connection cannot leave a volume command repeating.
+constexpr unsigned long VOLUME_WATCHDOG_MS = 2000;
 constexpr unsigned long LEARN_RECEIVER_SETTLE_MS = 750;
 constexpr uint16_t OTA_TIMEOUT_SECONDS = 60;
 const char *heldVolumeCommand = nullptr;
@@ -114,7 +116,9 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     .onkyo-logo { font-family: Georgia, serif; font-size: 1.55rem; font-weight: 900; letter-spacing: -.06em; }
     header p { margin: 4px 0 0; color: #bbb5aa; font-size: .8rem; }
     .connected { color: #91d27a; }
-    button { min-height: 56px; border: 1px solid #666; border-radius: 5px; background: linear-gradient(135deg, #3b3b3b, #1d1d1d); box-shadow: inset 0 1px #696969, 0 2px 2px #000; color: inherit; font: inherit; font-size: 1rem; font-weight: 650; cursor: pointer; touch-action: manipulation; }
+    button { min-height: 56px; border: 1px solid #666; border-radius: 5px; background: linear-gradient(135deg, #3b3b3b, #1d1d1d); box-shadow: inset 0 1px #696969, 0 2px 2px #000; color: inherit; font: inherit; font-size: 1rem; font-weight: 650; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    button:focus { outline: none; }
+    button:focus-visible { outline: 2px solid #d1c8ba; outline-offset: 2px; }
     button:active { transform: translateY(1px); background: #111; box-shadow: inset 0 2px 3px #000; }
     .power { width: 100%; background: linear-gradient(135deg, #9f3b35, #64231f); border-color: #c27067; font-size: 1.2rem; letter-spacing: .1em; }
     .power:active { background: #55201d; }
