@@ -288,7 +288,13 @@ String advancedButton(const char *id, bool learning = false) {
   if (strcmp(id, "POWER") == 0) button += F("power-key ");
   button += F("\" data-id=\"");
   button += id;
-  button += F("\">");
+  button += F("\"");
+  if (!learning && (strcmp(id, "VOL+") == 0 || strcmp(id, "VOL-") == 0)) {
+    button += F(" data-hold-command=\"");
+    button += id;
+    button += F("\"");
+  }
+  button += F(">");
   button += function->label;
   button += F("</button>");
   return button;
@@ -331,14 +337,16 @@ String renderRemoteShell(bool learning) {
 void handleAdvancedPage() {
   String page = remotePageHead("Pilot Onkyo Advanced");
   page += remoteShellStyle();
+  page += F("<style>.remote button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}.remote button:focus{outline:none}.remote button:focus-visible{outline:2px solid #d1c8ba;outline-offset:2px}</style>");
   page += renderRemoteShell(false);
-  page += F("<a class=\"back\" href=\"/\">Wróć do wersji Basic</a><script>document.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>fetch('/command',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)}));</script></main></body></html>");
+  page += F("<a class=\"back\" href=\"/\">Wróć do wersji Basic</a><script>let holdTimer=null,heldVolumeCommand=null;const postVolume=(path,body='')=>fetch(path,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});function stopHolding(){if(holdTimer!==null){clearInterval(holdTimer);holdTimer=null}if(heldVolumeCommand!==null){heldVolumeCommand=null;postVolume('/volume/stop').catch(()=>{})}}document.querySelectorAll('[data-id]:not([data-hold-command])').forEach(b=>b.onclick=()=>fetch('/command',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)}));document.querySelectorAll('[data-hold-command]').forEach(b=>b.addEventListener('pointerdown',e=>{e.preventDefault();stopHolding();heldVolumeCommand=b.dataset.holdCommand;b.setPointerCapture(e.pointerId);const direction=heldVolumeCommand==='VOL+'?'up':'down';postVolume('/volume/start','direction='+direction).then(r=>{if(!r.ok)throw new Error('Volume failed')}).catch(stopHolding);holdTimer=setInterval(()=>postVolume('/volume/keepalive').catch(stopHolding),150)}));document.addEventListener('pointerup',stopHolding);document.addEventListener('pointercancel',stopHolding);window.addEventListener('blur',stopHolding);window.addEventListener('pagehide',stopHolding);document.addEventListener('visibilitychange',()=>{if(document.hidden)stopHolding()});</script></main></body></html>");
   server.send(200, "text/html", page);
 }
 
 void handleRemoteLearnPage() {
   String page = remotePageHead("Nauka pilota Onkyo");
   page += remoteShellStyle();
+  page += F("<style>.remote button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}.remote button:focus{outline:none}.remote button:focus-visible{outline:2px solid #d1c8ba;outline-offset:2px}</style>");
   page += F("<h1>NAUKA PILOTA — RC-209S</h1><p class=\"hint\">Zielony znacznik oznacza przypisany kod. Po wybraniu przycisku nadajnik IR zostaje wyłączony, więc wzmacniacz nie dostanie żadnej komendy. Naciśnij odpowiednik na oryginalnym pilocie.</p><p id=\"status\">Wybierz przycisk do nauczenia.</p>");
   page += renderRemoteShell(true);
   page += F("<a href=\"/advanced\">Wróć do pilota Advanced</a><script>let current=null;const status=document.querySelector('#status');const buttons=[...document.querySelectorAll('[data-id]')];async function poll(){try{const r=await fetch('/learn/status');const d=await r.json();if(d.learning){current=d.name;buttons.forEach(b=>b.classList.toggle('learning',b.dataset.id===current));status.textContent='Czekam na sygnał: '+current}else if(current){buttons.forEach(b=>b.classList.remove('learning'));const b=buttons.find(x=>x.dataset.id===current);if(b)b.classList.add('saved');status.textContent='Kod zapisany: '+current;current=null}}catch(_){status.textContent='Brak połączenia z pilotem.'}}buttons.forEach(b=>b.onclick=async()=>{const r=await fetch('/learn/start',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)});if(!r.ok){status.textContent='Nie można rozpocząć nauki.';return}current=b.dataset.id;buttons.forEach(x=>x.classList.toggle('learning',x===b));status.textContent='Czekam na sygnał: '+current});window.addEventListener('pagehide',()=>{if(current)fetch('/learn/cancel',{method:'POST'})});setInterval(poll,600);</script></main></body></html>");
