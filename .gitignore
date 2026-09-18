@@ -2,6 +2,7 @@
 firmware/OnkyoRemote/WiFiConfig.h
 
 # Arduino build output
+/firmware/OnkyoRemote/build/
 *.bin
 *.elf
 *.map
