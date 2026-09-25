@@ -89,6 +89,7 @@ constexpr uint16_t OTA_TIMEOUT_SECONDS = 60;
 const char *heldVolumeCommand = nullptr;
 const char *learningCommand = nullptr;
 bool irTransmissionEnabled = true;
+bool irReceiverEnabled = false;
 unsigned long learningStartedMs = 0;
 unsigned long lastVolumeSignalMs = 0;
 unsigned long lastVolumeSendMs = 0;
@@ -369,6 +370,20 @@ void stopVolume() {
   heldVolumeCommand = nullptr;
 }
 
+// The IR receiver is needed only while assigning a new command.  Leaving its
+// sampling timer running continuously makes it react to every nearby remote.
+void enableIrReceiverForLearning() {
+  if (irReceiverEnabled) return;
+  IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
+  irReceiverEnabled = true;
+}
+
+void disableIrReceiver() {
+  if (!irReceiverEnabled) return;
+  IrReceiver.stop();
+  irReceiverEnabled = false;
+}
+
 bool sendOnkyoCommand(const String &name) {
   // Never emit IR while the receiver is learning: this prevents the amplifier
   // from receiving a command selected accidentally in the web UI.
@@ -416,6 +431,7 @@ void handleLearnStart() {
   }
   learningCommand = function->id;
   irTransmissionEnabled = false;
+  enableIrReceiverForLearning();
   learningStartedMs = millis();
   digitalWrite(IR_SEND_PIN, LOW);
   server.send(200, "application/json", "{\"ok\":true}");
@@ -424,6 +440,7 @@ void handleLearnStart() {
 void handleLearnCancel() {
   learningCommand = nullptr;
   irTransmissionEnabled = true;
+  disableIrReceiver();
   learningStartedMs = 0;
   digitalWrite(IR_SEND_PIN, LOW);
   server.send(200, "application/json", "{\"ok\":true}");
@@ -477,6 +494,7 @@ void processLearnedCommand() {
     }
     learningCommand = nullptr;
     irTransmissionEnabled = true;
+    disableIrReceiver();
     learningStartedMs = 0;
     digitalWrite(IR_SEND_PIN, LOW);
   }
@@ -570,8 +588,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  // Retain the known-working IR setup: transmitter on GPIO26, receiver on GPIO27.
-  IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
+  // The transmitter is always available.  The receiver is started only for
+  // an active learning session, so ordinary remotes are ignored otherwise.
   IrSender.begin(IR_SEND_PIN);
   preferences.begin("onkyo-remote", false);
   for (RemoteFunction &function : REMOTE_FUNCTIONS) {
