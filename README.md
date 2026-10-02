@@ -5,9 +5,42 @@ ESP32-based Wi-Fi infrared remote for the Onkyo RC-209S layout. It serves two lo
 - **Basic** — everyday controls: power, volume, mute, selected inputs and tuner preset arrows.
 - **Advanced** — the complete RC-209S-style layout, including tuner, tape decks, CD and amplifier controls.
 
-The remote works only inside the same local Wi-Fi network as the ESP32. It does not use a cloud service or require an Internet connection.
+The remote controls work inside the same local Wi-Fi network as the ESP32. They
+do not use a cloud service or require an Internet connection. The scheduled
+restart additionally uses NTP time synchronization.
 
 [Polska wersja / Polish version](README.pl.md)
+
+## Firmware versioning
+
+The version has one source: [FirmwareVersion.h](firmware/OnkyoRemote/FirmwareVersion.h).
+It appears at the bottom of Basic and Advanced, in the serial startup log, and in
+the JSON returned by `GET /version`, for example `{"version":"1.0.0"}`.
+This endpoint reports the version actually running on the ESP32.
+
+Use `MAJOR.MINOR.PATCH`: increment PATCH for fixes, MINOR for compatible new
+features, and MAJOR for breaking changes. Record each release in
+[CHANGELOG.md](CHANGELOG.md). Unreleased changes may accumulate under the same
+pending version; after release, use a new version for subsequent firmware changes.
+Updating the source or compiling it does not update the device.
+
+## Nightly restart
+
+Starting with version 1.0.0, the firmware checks for an idle restart in the local
+03:00–05:00 window, using Polish winter/summer time. It waits for 30 full minutes
+without control activity and at least 30 minutes since boot. If the condition
+is not met before 05:00, that night's restart is skipped.
+
+IR commands, active volume renewals, releasing an active hold, learning controls
+and OTA reset the idle timer. Merely opening a page or polling status does not.
+Restarting is blocked during OTA, learning and active holds. The restart date is
+saved to flash before reboot, limiting scheduled restarts to once per day even
+after power loss; a storage failure prevents the scheduled restart.
+
+The clock synchronizes asynchronously via `pool.ntp.org` and `time.nist.gov`.
+Without a valid synchronization after boot, scheduled restarting stays disabled;
+remote control continues normally. No clock waiting is added to the control loop.
+Schedule constants are in [DailyRestart.h](firmware/OnkyoRemote/DailyRestart.h).
 
 
 ## 1. What you need

@@ -2,6 +2,38 @@
 
 [English version](README.md)
 
+## Wersjonowanie firmware
+
+Numer wersji ma jedno źródło: [FirmwareVersion.h](firmware/OnkyoRemote/FirmwareVersion.h).
+Jest widoczny na dole paneli Basic i Advanced, w logu uruchomienia na porcie
+szeregowym oraz w odpowiedzi JSON z `GET /version`, np. `{"version":"1.0.0"}`.
+Ten adres podaje wersję faktycznie działającą na ESP32.
+
+Stosujemy `MAJOR.MINOR.PATCH`: PATCH zwiększamy przy poprawkach, MINOR przy nowych
+zgodnych funkcjach, a MAJOR przy zmianach łamiących zgodność. Każde wydanie opisujemy
+w [CHANGELOG.md](CHANGELOG.md). Zmiany przed wydaniem mogą zbierać się pod jednym
+przygotowywanym numerem; po wydaniu kolejne zmiany dostają nowy numer.
+Zmiana źródeł lub kompilacja nie aktualizuje urządzenia.
+
+## Nocny restart
+
+Od wersji 1.0.0 firmware szuka momentu na restart w oknie 03:00–05:00 czasu
+polskiego, z uwzględnieniem czasu letniego i zimowego. Wymaga pełnych 30 minut
+bezczynności i co najmniej 30 minut od uruchomienia. Jeżeli warunek nie zostanie
+spełniony przed 05:00, restart tej nocy jest pomijany.
+
+Komendy IR, podtrzymanie aktywnej regulacji głośności, puszczenie aktywnego
+przycisku, obsługa nauki kodów i OTA zerują czas bezczynności. Samo otwarcie strony
+lub odczyt statusu tego nie robi. Podczas OTA, nauki i aktywnego przytrzymania
+restart jest blokowany. Data restartu jest zapisywana przed jego wykonaniem,
+więc zaplanowany restart nastąpi najwyżej raz dziennie, również po odłączeniu
+zasilania. Błąd zapisu do pamięci uniemożliwia zaplanowany restart.
+
+Zegar synchronizuje się w tle przez `pool.ntp.org` i `time.nist.gov`. Bez poprawnej
+synchronizacji po uruchomieniu zaplanowany restart pozostaje wyłączony, a pilot
+działa normalnie. Sterowanie nie czeka na odpowiedź serwera czasu.
+Stałe harmonogramu znajdują się w [DailyRestart.h](firmware/OnkyoRemote/DailyRestart.h).
+
 
 ## 1. Co jest potrzebne
 

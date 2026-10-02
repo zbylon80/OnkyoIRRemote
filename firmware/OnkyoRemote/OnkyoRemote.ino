@@ -3,8 +3,13 @@
 #include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <atomic>
+#include <esp_sntp.h>
+#include <esp_timer.h>
 
 #include "WiFiConfig.h"
+#include "FirmwareVersion.h"
+#include "DailyRestart.h"
 
 constexpr uint8_t IR_SEND_PIN = 26;
 constexpr uint8_t IR_RECEIVE_PIN = 27;
@@ -79,6 +84,12 @@ RemoteFunction REMOTE_FUNCTIONS[] = {
 
 WebServer server(80);
 Preferences preferences;
+Preferences restartPreferences;
+DailyRestartPolicy dailyRestart;
+std::atomic<bool> timeSynchronized{false};
+bool restartStorageReady = false;
+bool otaInProgress = false;
+uint64_t lastRestartCheckMs = 0;
 
 constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
 // Mobile browsers and Wi-Fi can delay a keepalive briefly.  Keep a finite
@@ -93,6 +104,53 @@ bool irReceiverEnabled = false;
 unsigned long learningStartedMs = 0;
 unsigned long lastVolumeSignalMs = 0;
 unsigned long lastVolumeSendMs = 0;
+
+uint64_t restartUptimeMs() {
+  return static_cast<uint64_t>(esp_timer_get_time()) / 1000;
+}
+
+void recordUserActivity() {
+  dailyRestart.recordActivity(restartUptimeMs());
+}
+
+void onTimeSynchronized(struct timeval *timeValue) {
+  // NTP runs in another task. No flash writes or control changes in this callback.
+  timeSynchronized.store(timeValue != nullptr && timeValue->tv_sec >= 1704067200);
+}
+
+void startTimeSynchronization() {
+  sntp_set_time_sync_notification_cb(onTimeSynchronized);
+  configTzTime(RESTART_TIME_ZONE, "pool.ntp.org", "time.nist.gov");
+}
+
+void handleDailyRestart() {
+  const uint64_t uptime = restartUptimeMs();
+  if (uptime - lastRestartCheckMs < 1000) return;
+  lastRestartCheckMs = uptime;
+  if (!restartStorageReady || !timeSynchronized.load()) return;
+
+  const time_t now = time(nullptr);
+  tm localTime{};
+  // Nonblocking: never wait for NTP from the control loop.
+  if (localtime_r(&now, &localTime) == nullptr) return;
+  const bool busy = otaInProgress || learningCommand != nullptr || heldVolumeCommand != nullptr;
+  const uint32_t day = dailyRestart.dueDay(uptime, &localTime, true, busy);
+  if (day == 0) return;
+
+  // Commit before resetting. If storage fails, do not risk a restart loop.
+  if (restartPreferences.putUInt("restartDay", day) != sizeof(day)) {
+    restartStorageReady = false;
+    Serial.println(F("Daily restart skipped: cannot save restart date."));
+    return;
+  }
+  dailyRestart.markRestart(day);
+  digitalWrite(IR_SEND_PIN, LOW);
+  Serial.printf("Daily idle restart: %04d-%02d-%02d %02d:%02d Europe/Warsaw\n",
+                localTime.tm_year + 1900, localTime.tm_mon + 1, localTime.tm_mday,
+                localTime.tm_hour, localTime.tm_min);
+  Serial.flush();
+  ESP.restart();
+}
 
 const char INDEX_PAGE[] PROGMEM = R"HTML(
 <!doctype html>
@@ -131,6 +189,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     .volume button { min-height: 72px; font-size: 2rem; }
     .mute { width: 100%; margin-top: 10px; }
     .advanced-link { display: block; margin-top: 26px; color: #d1c8ba; font-size: .82rem; text-align: center; }
+    .firmware-version { margin: 14px 0 0; color: #bbb5aa; font-size: .72rem; text-align: center; }
     @media (min-width: 431px) { main { min-height: auto; border-radius: 9px; } }
   </style>
 </head>
@@ -158,6 +217,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
       <button class="preset-button" type="button" data-command="PRESET+">▶</button>
     </div>
     <a class="advanced-link" href="/advanced">Otwórz pilot Advanced</a>
+    <p class="firmware-version">Firmware v)HTML" ONKYO_FIRMWARE_VERSION R"HTML(</p>
   </main>
   <script>
     let holdTimer = null;
@@ -338,9 +398,10 @@ String renderRemoteShell(bool learning) {
 void handleAdvancedPage() {
   String page = remotePageHead("Pilot Onkyo Advanced");
   page += remoteShellStyle();
-  page += F("<style>.remote button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}.remote button:focus{outline:none}.remote button:focus-visible{outline:2px solid #d1c8ba;outline-offset:2px}</style>");
+  page += F("<style>.firmware-version{margin:14px 0 0;color:#bbb5aa;font-size:.72rem;text-align:center}.remote button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}.remote button:focus{outline:none}.remote button:focus-visible{outline:2px solid #d1c8ba;outline-offset:2px}</style>");
   page += renderRemoteShell(false);
-  page += F("<a class=\"back\" href=\"/\">Wróć do wersji Basic</a><script>let holdTimer=null,heldVolumeCommand=null;const postVolume=(path,body='')=>fetch(path,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});function stopHolding(){if(holdTimer!==null){clearInterval(holdTimer);holdTimer=null}if(heldVolumeCommand!==null){heldVolumeCommand=null;postVolume('/volume/stop').catch(()=>{})}}document.querySelectorAll('[data-id]:not([data-hold-command])').forEach(b=>b.onclick=()=>fetch('/command',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)}));document.querySelectorAll('[data-hold-command]').forEach(b=>b.addEventListener('pointerdown',e=>{e.preventDefault();stopHolding();heldVolumeCommand=b.dataset.holdCommand;b.setPointerCapture(e.pointerId);const direction=heldVolumeCommand==='VOL+'?'up':'down';postVolume('/volume/start','direction='+direction).then(r=>{if(!r.ok)throw new Error('Volume failed')}).catch(stopHolding);holdTimer=setInterval(()=>postVolume('/volume/keepalive').catch(stopHolding),150)}));document.addEventListener('pointerup',stopHolding);document.addEventListener('pointercancel',stopHolding);window.addEventListener('blur',stopHolding);window.addEventListener('pagehide',stopHolding);document.addEventListener('visibilitychange',()=>{if(document.hidden)stopHolding()});</script></main></body></html>");
+  page += F("<a class=\"back\" href=\"/\">Wróć do wersji Basic</a><script>let holdTimer=null,heldVolumeCommand=null;const postVolume=(path,body='')=>fetch(path,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});function stopHolding(){if(holdTimer!==null){clearInterval(holdTimer);holdTimer=null}if(heldVolumeCommand!==null){heldVolumeCommand=null;postVolume('/volume/stop').catch(()=>{})}}document.querySelectorAll('[data-id]:not([data-hold-command])').forEach(b=>b.onclick=()=>fetch('/command',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)}));document.querySelectorAll('[data-hold-command]').forEach(b=>b.addEventListener('pointerdown',e=>{e.preventDefault();stopHolding();heldVolumeCommand=b.dataset.holdCommand;b.setPointerCapture(e.pointerId);const direction=heldVolumeCommand==='VOL+'?'up':'down';postVolume('/volume/start','direction='+direction).then(r=>{if(!r.ok)throw new Error('Volume failed')}).catch(stopHolding);holdTimer=setInterval(()=>postVolume('/volume/keepalive').catch(stopHolding),150)}));document.addEventListener('pointerup',stopHolding);document.addEventListener('pointercancel',stopHolding);window.addEventListener('blur',stopHolding);window.addEventListener('pagehide',stopHolding);document.addEventListener('visibilitychange',()=>{if(document.hidden)stopHolding()});</script>");
+  page += F("<p class=\"firmware-version\">Firmware v" ONKYO_FIRMWARE_VERSION "</p></main></body></html>");
   server.send(200, "text/html", page);
 }
 
@@ -352,6 +413,11 @@ void handleRemoteLearnPage() {
   page += renderRemoteShell(true);
   page += F("<a href=\"/advanced\">Wróć do pilota Advanced</a><script>let current=null;const status=document.querySelector('#status');const buttons=[...document.querySelectorAll('[data-id]')];async function poll(){try{const r=await fetch('/learn/status');const d=await r.json();if(d.learning){current=d.name;buttons.forEach(b=>b.classList.toggle('learning',b.dataset.id===current));status.textContent='Czekam na sygnał: '+current}else if(current){buttons.forEach(b=>b.classList.remove('learning'));const b=buttons.find(x=>x.dataset.id===current);if(b)b.classList.add('saved');status.textContent='Kod zapisany: '+current;current=null}}catch(_){status.textContent='Brak połączenia z pilotem.'}}buttons.forEach(b=>b.onclick=async()=>{const r=await fetch('/learn/start',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)});if(!r.ok){status.textContent='Nie można rozpocząć nauki.';return}current=b.dataset.id;buttons.forEach(x=>x.classList.toggle('learning',x===b));status.textContent='Czekam na sygnał: '+current});window.addEventListener('pagehide',()=>{if(current)fetch('/learn/cancel',{method:'POST'})});setInterval(poll,600);</script></main></body></html>");
   server.send(200, "text/html", page);
+}
+
+void handleVersion() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", F("{\"version\":\"" ONKYO_FIRMWARE_VERSION "\"}"));
 }
 
 void handleRoot() {
@@ -390,6 +456,7 @@ bool sendOnkyoCommand(const String &name) {
   if (!irTransmissionEnabled || learningCommand != nullptr) return false;
   RemoteFunction *function = findRemoteFunction(name);
   if (function != nullptr) {
+    recordUserActivity();
     if (function->learnedProtocol != UNKNOWN) {
       IRData learnedData{};
       learnedData.protocol = function->learnedProtocol;
@@ -430,6 +497,7 @@ void handleLearnStart() {
     return;
   }
   learningCommand = function->id;
+  recordUserActivity();
   irTransmissionEnabled = false;
   enableIrReceiverForLearning();
   learningStartedMs = millis();
@@ -438,6 +506,7 @@ void handleLearnStart() {
 }
 
 void handleLearnCancel() {
+  recordUserActivity();
   learningCommand = nullptr;
   irTransmissionEnabled = true;
   disableIrReceiver();
@@ -492,6 +561,7 @@ void processLearnedCommand() {
       Serial.print(" command=0x");
       Serial.println(data.command, HEX);
     }
+    recordUserActivity();
     learningCommand = nullptr;
     irTransmissionEnabled = true;
     disableIrReceiver();
@@ -519,6 +589,7 @@ void handleVolumeStart() {
   const String direction = server.arg("direction");
   heldVolumeCommand = direction == "up" ? "VOL+" : direction == "down" ? "VOL-"
                       : direction == "tuning-up" ? "TUNING+" : direction == "tuning-down" ? "TUNING-" : nullptr;
+  if (heldVolumeCommand != nullptr) recordUserActivity();
   if (heldVolumeCommand == nullptr || !sendOnkyoCommand(heldVolumeCommand)) {
     stopVolume();
     server.send(400, "application/json", "{\"ok\":false}");
@@ -532,12 +603,14 @@ void handleVolumeStart() {
 
 void handleVolumeKeepalive() {
   if (heldVolumeCommand != nullptr) {
+    recordUserActivity();
     lastVolumeSignalMs = millis();
   }
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
 void handleVolumeStop() {
+  if (heldVolumeCommand != nullptr) recordUserActivity();
   stopVolume();
   server.send(200, "application/json", "{\"ok\":true}");
 }
@@ -578,6 +651,18 @@ void startOta() {
   ArduinoOTA.setHostname(OTA_HOSTNAME);
   ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.setTimeout(OTA_TIMEOUT_SECONDS);
+  ArduinoOTA.onStart([]() {
+    otaInProgress = true;
+    recordUserActivity();
+  });
+  ArduinoOTA.onEnd([]() {
+    otaInProgress = false;
+    recordUserActivity();
+  });
+  ArduinoOTA.onError([](ota_error_t) {
+    otaInProgress = false;
+    recordUserActivity();
+  });
   ArduinoOTA.begin();
 
   Serial.print("OTA ready. Hostname: ");
@@ -587,6 +672,10 @@ void startOta() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  Serial.println(F("Onkyo IR Remote firmware v" ONKYO_FIRMWARE_VERSION));
+  restartStorageReady = restartPreferences.begin("onkyo-restart", false);
+  dailyRestart.begin(restartUptimeMs(), restartStorageReady ? restartPreferences.getUInt("restartDay", 0) : 0);
+  if (!restartStorageReady) Serial.println(F("Daily restart disabled: storage unavailable."));
 
   // The transmitter is always available.  The receiver is started only for
   // an active learning session, so ordinary remotes are ignored otherwise.
@@ -617,9 +706,11 @@ void setup() {
   }
 
   connectToWiFi();
+  startTimeSynchronization();
   startOta();
 
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/version", HTTP_GET, handleVersion);
   server.on("/advanced", HTTP_GET, handleAdvancedPage);
   server.on("/manifest.webmanifest", HTTP_GET, handleManifest);
   server.on("/icon.svg", HTTP_GET, handleIcon);
@@ -640,4 +731,5 @@ void loop() {
   server.handleClient();
   repeatHeldVolume();
   processLearnedCommand();
+  handleDailyRestart();
 }
