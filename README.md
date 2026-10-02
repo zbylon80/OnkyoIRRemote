@@ -15,7 +15,7 @@ restart additionally uses NTP time synchronization.
 
 The version has one source: [FirmwareVersion.h](firmware/OnkyoRemote/FirmwareVersion.h).
 It appears at the bottom of Basic and Advanced, in the serial startup log, and in
-the JSON returned by `GET /version`, for example `{"version":"1.0.0"}`.
+the JSON returned by `GET /version`, for example `{"version":"1.1.0"}`.
 This endpoint reports the version actually running on the ESP32.
 
 Use `MAJOR.MINOR.PATCH`: increment PATCH for fixes, MINOR for compatible new
@@ -28,8 +28,9 @@ Updating the source or compiling it does not update the device.
 
 A tap sends one IR command. Repeating starts only while the same press is still
 held, 350 ms after its initial response. On both Basic and Advanced, ESP32 ends
-each volume-up hold at two seconds from the first command, regardless of
-renewals from the phone or computer. Release and press again to continue.
+each volume-up hold at three seconds from the first command, regardless of
+renewals from the phone or computer. The button also visually releases at the limit, even while the pointer is held.
+Release and press again to continue.
 Volume-down and tuning have no additional hold limit; all holds still stop
 after more than two seconds without a valid renewal.
 
@@ -46,6 +47,23 @@ at `/volume.js`; the firmware policy is in
 then uses that token for `/volume/start`, `/volume/keepalive` and `/volume/stop`.
 Reload existing browser tabs after uploading this version; the previous hold
 API without a session token is rejected.
+
+## Stability diagnostics
+
+Starting with 1.1.0, Wi-Fi modem sleep is disabled to reduce response latency;
+this increases radio power consumption. The **Diagnostyka** link below the
+version opens `/status`; `/diagnostics` returns the same measurements as JSON.
+The page reads once when opened and again only on manual refresh.
+
+It reports firmware/uptime, Wi-Fi signal in dBm, configured power saving,
+connection/disconnect counts and the last disconnect reason code/time since
+boot, free/minimum heap and largest free block, the reset reason, maximum loop
+duration, clock synchronization and volume limits. Missing signal/disconnect
+information is `null` in JSON. Counters and timing maxima describe the current
+boot; they are not a persistent history. The reset reason comes from the ESP32
+SDK, so a software reset does not distinguish OTA from the nightly restart.
+Diagnostics do not affect the idle timer and never include Wi-Fi or OTA
+credentials. They are read-only and do not send amplifier commands.
 
 ## Nightly restart
 

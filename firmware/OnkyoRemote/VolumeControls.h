@@ -1,8 +1,13 @@
 #pragma once
 
+#include "VolumeHoldSafety.h"
+#define ONKYO_STRINGIFY_DETAIL(value) #value
+#define ONKYO_STRINGIFY(value) ONKYO_STRINGIFY_DETAIL(value)
+
 // Shared by Basic and Advanced. No background connection polling is needed.
 const char VOLUME_SCRIPT[] PROGMEM = R"JS(
 (() => {
+  const maxUpHoldMs = )JS" ONKYO_STRINGIFY(ONKYO_VOLUME_UP_MAX_HOLD_MS) R"JS(;
   let currentHold = null;
   let pressedPointerId = null;
   let pressInFlight = false;
@@ -22,6 +27,7 @@ const char VOLUME_SCRIPT[] PROGMEM = R"JS(
   function stopHolding(hold = currentHold) {
     if (hold === null || hold !== currentHold) return;
     currentHold = null;
+    hold.button.classList.remove('hold-pressed');
     clearTimeout(hold.renewTimer);
     clearTimeout(hold.limitTimer);
     clearTimeout(hold.startTimer);
@@ -48,11 +54,12 @@ const char VOLUME_SCRIPT[] PROGMEM = R"JS(
     // Do not accumulate initial presses behind a stalled connection.
     if (pressInFlight) return;
     const command = button.dataset.holdCommand;
-    const hold = {session: null, pointerId: event.pointerId, renewTimer: null, limitTimer: null, startTimer: null};
+    const hold = {button, session: null, pointerId: event.pointerId, renewTimer: null, limitTimer: null, startTimer: null};
     currentHold = hold;
+    button.classList.add('hold-pressed');
     button.setPointerCapture(event.pointerId);
     if (command === 'VOL+') {
-      hold.limitTimer = setTimeout(() => stopHolding(hold), 2000);
+      hold.limitTimer = setTimeout(() => stopHolding(hold), maxUpHoldMs);
     }
     const direction = command === 'VOL+' ? 'up' : command === 'VOL-' ? 'down'
       : command === 'TUNING+' ? 'tuning-up' : 'tuning-down';
@@ -104,3 +111,6 @@ const char VOLUME_SCRIPT[] PROGMEM = R"JS(
   document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
 })();
 )JS";
+
+#undef ONKYO_STRINGIFY
+#undef ONKYO_STRINGIFY_DETAIL

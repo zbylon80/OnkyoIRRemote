@@ -5,6 +5,7 @@ From the project root on Windows with Python and Visual Studio C++ build tools:
 ```powershell
 python tests/test_daily_restart.py
 node tests/test_volume_controls.js
+node tests/test_diagnostics_page.js
 ```
 
 The tests compile the real `DailyRestart.h` policy and extract the actual
@@ -19,7 +20,7 @@ The Polish timezone rule follows the POSIX timezone supported by the ESP32 SDK;
 these host tests supply already-converted local time.
 
 The same host test checks the actual volume handlers: single-command taps,
-the two-second up limit despite renewals/duplicate starts, cancelled and stale
+the three-second up limit despite renewals/duplicate starts, cancelled and stale
 sessions, token parsing, boot isolation, millis rollover, and continuous down/
 tuning holds with their disconnect watchdog. IR sending is simulated.
 
@@ -27,3 +28,9 @@ The Node test runs the exact served browser script with manual timers and
 deferred HTTP responses. It checks release before a reply, local limits,
 cleanup, stale errors, request timeouts, 64-bit token precision and the absence
 of queued presses/renewals. Neither test communicates with a physical device.
+
+Diagnostics tests execute the real network event callback and HTTP handler,
+parse its JSON, check Wi-Fi/heap/reset data and verify reads leave the inactivity
+timer unchanged. The page test covers manual refresh, timeout recovery and
+rendering without background polling. Volume tests also verify visual pressed
+state is cleared at three seconds while release is still required.

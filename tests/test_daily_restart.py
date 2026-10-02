@@ -1,5 +1,6 @@
 """Build/run restart and volume safety with simulated hardware (Windows/MSVC)."""
 from pathlib import Path
+import json
 import re
 import subprocess
 
@@ -7,13 +8,17 @@ root = Path(__file__).resolve().parents[1]
 sketch = root / 'firmware/OnkyoRemote'
 source = (sketch / 'OnkyoRemote.ino').read_text(encoding='utf-8')
 functions = ('restartUptimeMs', 'recordUserActivity', 'onTimeSynchronized',
-             'startTimeSynchronization', 'handleDailyRestart', 'stopVolume',
+             'startTimeSynchronization', 'onWiFiDiagnostics', 'resetReasonName', 'handleDiagnostics',
+             'handleDiagnosticsPage', 'handleDailyRestart', 'stopVolume',
              'readVolumeSession', 'handleVolumePress', 'expireVolumeHold', 'handleVolumeStart',
              'handleVolumeKeepalive', 'handleVolumeStop', 'repeatHeldVolume', 'handleVersion',
              'handleRoot', 'handleManifest', 'handleIcon', 'startOta')
-pieces = []
+timeout = re.search(r'^constexpr uint32_t OTA_RECEIVE_TIMEOUT_MS = \d+;', source, re.M)
+if timeout is None:
+    raise SystemExit('Cannot find OTA timeout in milliseconds.')
+pieces = [timeout.group()]
 for name in functions:
-    match = re.search(rf'^(?:uint64_t|void) {name}\([^\n]*\) \{{.*?^\}}', source, re.M | re.S)
+    match = re.search(rf'^(?:uint64_t|void|const char \*)\s*{name}\([^\n]*\) \{{.*?^\}}', source, re.M | re.S)
     if match is None:
         raise SystemExit(f'Cannot find actual sketch function: {name}')
     pieces.append(match.group())
@@ -37,4 +42,30 @@ runner.write_text(
     f'if errorlevel 1 exit /b %errorlevel%\n"{build / "daily_restart_tests.exe"}"\n',
     encoding='utf-8'
 )
-subprocess.run(['cmd.exe', '/d', '/c', str(runner)], cwd=build, check=True)
+result = subprocess.run(['cmd.exe', '/d', '/c', str(runner)], cwd=build, capture_output=True, text=True)
+if result.returncode:
+    print(result.stdout, result.stderr)
+    raise SystemExit(result.returncode)
+checked = 0
+for line in result.stdout.splitlines():
+    if line.startswith('DIAGNOSTICS_'):
+        label, body = line.split(':', 1)
+        data = json.loads(body)
+        assert data['version'] == '1.1.0' and data['volumeUpLimitMs'] == 3000
+        assert data['volumeWatchdogMs'] == 2000 and data['reset']['reason'] == 'software'
+        assert data['memory']['freeBytes'] == 180000 and data['memory']['minimumFreeBytes'] == 160000
+        assert not any(f'"{key}"' in body.lower() for key in ('password', 'ssid', 'macaddress', 'otapassword', 'wifissid'))
+        if label == 'DIAGNOSTICS_CONNECTED':
+            assert data['wifi']['rssiDbm'] == -64 and not data['wifi']['sleepEnabled']
+            assert data['wifi']['connections'] == 2 and data['wifi']['disconnects'] == 1
+            assert data['wifi']['lastDisconnectReason'] == 201
+            assert data['wifi']['lastDisconnectUptimeSeconds'] == 90
+            assert data['uptimeSeconds'] == 90 and data['loopMaxMs'] == 75
+        else:
+            assert not data['wifi']['connected'] and data['wifi']['sleepEnabled']
+            assert data['wifi']['rssiDbm'] is None and data['wifi']['lastDisconnectReason'] is None
+        checked += 1
+    elif line:
+        print(line)
+assert checked == 2
+print('Diagnostics JSON schema and event data verified.')

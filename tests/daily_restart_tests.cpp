@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include "VolumeHoldSafety.h"
+#include "DeviceDiagnostics.h"
 #include "DailyRestart.h"
 #include "FirmwareVersion.h"
 
@@ -47,7 +48,27 @@ struct FakeSerial {
   template<typename... Args> void printf(const char *, Args...) { events.push_back("log"); }
   void flush() { events.push_back("flush"); }
 } Serial;
-struct FakeESP { void restart() { ++resetCount; events.push_back("restart"); } } ESP;
+struct FakeESP {
+  void restart() { ++resetCount; events.push_back("restart"); }
+  uint32_t getFreeHeap() { return 180000; }
+  uint32_t getMinFreeHeap() { return 160000; }
+  uint32_t getMaxAllocHeap() { return 100000; }
+} ESP;
+constexpr int WL_CONNECTED = 3, WIFI_PS_NONE = 0;
+struct FakeWiFi {
+  bool connected = true;
+  int sleep = 0;
+  int status() { return connected ? WL_CONNECTED : 6; }
+  int RSSI() { return -64; }
+  int getSleep() { return sleep; }
+} WiFi;
+using WiFiEvent_t = int;
+constexpr WiFiEvent_t ARDUINO_EVENT_WIFI_STA_GOT_IP = 1, ARDUINO_EVENT_WIFI_STA_DISCONNECTED = 2;
+struct WiFiEventInfo_t { struct { uint32_t reason; } wifi_sta_disconnected; };
+enum esp_reset_reason_t { ESP_RST_UNKNOWN, ESP_RST_POWERON, ESP_RST_EXT, ESP_RST_SW, ESP_RST_PANIC,
+  ESP_RST_INT_WDT, ESP_RST_TASK_WDT, ESP_RST_WDT, ESP_RST_DEEPSLEEP, ESP_RST_BROWNOUT, ESP_RST_SDIO };
+esp_reset_reason_t esp_reset_reason() { return ESP_RST_SW; }
+DeviceDiagnostics deviceDiagnostics;
 constexpr int IR_SEND_PIN = 26, LOW = 0;
 void digitalWrite(int, int) { events.push_back("low"); }
 using String = std::string;
@@ -55,22 +76,23 @@ struct FakeServer {
   std::map<std::string, std::string> args;
   int status = 0;
   std::string body;
+  std::map<std::string, std::string> headers;
   bool hasArg(const char *key) { return args.count(key) != 0; }
   String arg(const char *key) { return args.count(key) ? args.at(key) : ""; }
   void send(int code, const char *, const char *value) { status = code; body = value; }
-  void send_P(int, const char *, const char *) {}
-  void sendHeader(const char *, const char *) {}
+  void send_P(int code, const char *, const char *value) { status = code; body = value; }
+  void sendHeader(const char *key, const char *value) { headers[key] = value; }
 } server;
-const char *INDEX_PAGE = "", *PWA_MANIFEST = "", *PWA_ICON = "";
+const char *INDEX_PAGE = "", *PWA_MANIFEST = "", *PWA_ICON = "", *DIAGNOSTICS_PAGE = "diagnostics";
 using ota_error_t = int;
 const char *OTA_HOSTNAME = "test", *OTA_PASSWORD = "test";
-constexpr uint16_t OTA_TIMEOUT_SECONDS = 60;
 struct FakeOTA {
+  uint32_t receiveTimeoutMs = 0;
   std::function<void()> started, ended;
   std::function<void(ota_error_t)> failed;
   void setHostname(const char *) {}
   void setPassword(const char *) {}
-  void setTimeout(uint16_t) {}
+  void setTimeout(uint32_t value) { receiveTimeoutMs = value; }
   void onStart(std::function<void()> fn) { started = fn; }
   void onEnd(std::function<void()> fn) { ended = fn; }
   void onError(std::function<void(ota_error_t)> fn) { failed = fn; }
@@ -118,7 +140,11 @@ void resetFixture() {
   volumeSafety.begin(0x1234);
   preparedVolumeCommand = nullptr; irCommands = 0; irTransmissionEnabled = true;
   lastVolumeSignalMs = lastVolumeSendMs = 0;
-  server.args.clear(); server.status = 0; server.body.clear();
+  server.args.clear(); server.status = 0; server.body.clear(); server.headers.clear();
+  WiFi.connected = true; WiFi.sleep = 0;
+  deviceDiagnostics.connections.store(0); deviceDiagnostics.disconnects.store(0);
+  deviceDiagnostics.lastDisconnectReason.store(0); deviceDiagnostics.lastDisconnectUptimeSeconds.store(0);
+  deviceDiagnostics.maxLoopMs = 0;
 }
 
 uint64_t press(const char *direction) {
@@ -212,6 +238,7 @@ int main() {
   syncCallback(nullptr); assert(!timeSynchronized.load());
 
   resetFixture(); startOta(); fakeUptime = RESTART_IDLE_MS;
+  assert(ArduinoOTA.receiveTimeoutMs >= 1000 && ArduinoOTA.receiveTimeoutMs <= 10000);
   ArduinoOTA.started(); assert(otaInProgress);
   handleDailyRestart(); assert(resetCount == 0);
   fakeUptime += 1000; ArduinoOTA.failed(1); assert(!otaInProgress);
@@ -241,19 +268,19 @@ int main() {
   handleVolumeStop(); start(first);
   assert(server.status == 409 && heldVolumeCommand == nullptr && irCommands == 1);
 
-  // Frequent renewals and duplicate starts cannot extend the two-second cap.
+  // Frequent renewals and duplicate starts cannot extend the three-second cap.
   resetFixture(); first = press("up"); fakeUptime = 350; start(first);
   assert(server.status == 200 && irCommands == 1);
-  for (fakeUptime = 500; fakeUptime < 2000; fakeUptime += 150) {
+  for (fakeUptime = 500; fakeUptime < 3000; fakeUptime += 150) {
     handleVolumeKeepalive(); repeatHeldVolume(); assert(heldVolumeCommand != nullptr);
   }
-  fakeUptime = 1999; start(first); assert(server.status == 200);
+  fakeUptime = 2999; start(first); assert(server.status == 200);
   const int beforeLimit = irCommands;
-  fakeUptime = 2000; handleVolumeKeepalive(); repeatHeldVolume();
+  fakeUptime = 3000; handleVolumeKeepalive(); repeatHeldVolume();
   assert(server.status == 409 && heldVolumeCommand == nullptr && irCommands == beforeLimit);
-  fakeUptime = 2100; start(first); assert(server.status == 409);
+  fakeUptime = 3100; start(first); assert(server.status == 409);
   // A late first start also counts from the initial press, not from its arrival.
-  resetFixture(); first = press("up"); fakeUptime = 2000; start(first);
+  resetFixture(); first = press("up"); fakeUptime = 3000; start(first);
   assert(server.status == 409 && heldVolumeCommand == nullptr && irCommands == 1);
 
   // An old stop/renew/start cannot stop, sustain or replace a newer hold.
@@ -297,11 +324,29 @@ int main() {
   safety.begin(42);
   const uint64_t wrapped = safety.prepare(true, UINT32_MAX - 500);
   assert(safety.start(wrapped, UINT32_MAX - 100) == VolumeHoldSafety::StartResult::Started);
-  assert(!safety.reachedLimit(1498)); assert(safety.reachedLimit(1499));
-  safety.closeAll(); assert(safety.start(wrapped, 1600) == VolumeHoldSafety::StartResult::Rejected);
+  assert(!safety.reachedLimit(2498)); assert(safety.reachedLimit(2499));
+  safety.closeAll(); assert(safety.start(wrapped, 2600) == VolumeHoldSafety::StartResult::Rejected);
 
   resetFixture(); irTransmissionEnabled = false;
   server.args = {{"direction", "up"}}; handleVolumePress();
   assert(server.status == 400 && irCommands == 0 && heldVolumeCommand == nullptr);
+  // Diagnostics render valid JSON, count events, and never count as control use.
+  resetFixture(); fakeUptime = 90000;
+  onWiFiDiagnostics(ARDUINO_EVENT_WIFI_STA_GOT_IP, WiFiEventInfo_t{});
+  onWiFiDiagnostics(ARDUINO_EVENT_WIFI_STA_DISCONNECTED, WiFiEventInfo_t{{201}});
+  onWiFiDiagnostics(ARDUINO_EVENT_WIFI_STA_GOT_IP, WiFiEventInfo_t{});
+  deviceDiagnostics.maxLoopMs = 75;
+  handleDiagnostics();
+  assert(server.status == 200 && server.headers.at("Cache-Control") == "no-store");
+  assert(irCommands == 0 && writeCount == 0 && resetCount == 0);
+  std::cout << "DIAGNOSTICS_CONNECTED:" << server.body << "\n";
+  resetFixture(); WiFi.connected = false; WiFi.sleep = 1;
+  handleDiagnostics(); std::cout << "DIAGNOSTICS_DISCONNECTED:" << server.body << "\n";
+  assert(std::string(resetReasonName(ESP_RST_BROWNOUT)) == "brownout");
+  assert(std::string(resetReasonName(static_cast<esp_reset_reason_t>(99))) == "unknown");
+  resetFixture(); fakeUptime = RESTART_IDLE_MS - 1000;
+  handleDiagnostics(); handleDiagnosticsPage();
+  fakeUptime = RESTART_IDLE_MS; handleDailyRestart();
+  assert(resetCount == 1 && irCommands == 0);
   std::cout << "Daily restart and volume safety integration tests passed (no hardware actions).\n";
 }

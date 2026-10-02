@@ -7,6 +7,7 @@
 #include <esp_sntp.h>
 #include <esp_timer.h>
 #include <esp_random.h>
+#include <esp_system.h>
 #include <errno.h>
 
 #include "WiFiConfig.h"
@@ -14,6 +15,8 @@
 #include "DailyRestart.h"
 #include "VolumeHoldSafety.h"
 #include "VolumeControls.h"
+#include "DeviceDiagnostics.h"
+#include "DiagnosticsPage.h"
 
 constexpr uint8_t IR_SEND_PIN = 26;
 constexpr uint8_t IR_RECEIVE_PIN = 27;
@@ -95,6 +98,7 @@ bool restartStorageReady = false;
 bool otaInProgress = false;
 uint64_t lastRestartCheckMs = 0;
 VolumeHoldSafety volumeSafety;
+DeviceDiagnostics deviceDiagnostics;
 const char *preparedVolumeCommand = nullptr;
 
 constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
@@ -102,7 +106,8 @@ constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
 // watchdog so a lost connection cannot leave a volume command repeating.
 constexpr unsigned long VOLUME_WATCHDOG_MS = 2000;
 constexpr unsigned long LEARN_RECEIVER_SETTLE_MS = 750;
-constexpr uint16_t OTA_TIMEOUT_SECONDS = 60;
+// ArduinoOTA expects milliseconds, not seconds. Allow brief Wi-Fi stalls.
+constexpr uint32_t OTA_RECEIVE_TIMEOUT_MS = 5000;
 const char *heldVolumeCommand = nullptr;
 const char *learningCommand = nullptr;
 bool irTransmissionEnabled = true;
@@ -117,6 +122,72 @@ uint64_t restartUptimeMs() {
 
 void recordUserActivity() {
   dailyRestart.recordActivity(restartUptimeMs());
+}
+
+void onWiFiDiagnostics(WiFiEvent_t event, WiFiEventInfo_t info) {
+  // The network event task only updates atomic counters; no HTTP or flash work.
+  if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+    deviceDiagnostics.connected();
+  } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    deviceDiagnostics.disconnected(info.wifi_sta_disconnected.reason,
+                                   static_cast<uint32_t>(restartUptimeMs() / 1000));
+  }
+}
+
+const char *resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "power_on";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT: return "task_watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep_sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    default: return "unknown";
+  }
+}
+
+void handleDiagnostics() {
+  const bool connected = WiFi.status() == WL_CONNECTED;
+  const uint32_t disconnects = deviceDiagnostics.disconnects.load();
+  char rssi[16] = "null", reason[16] = "null", disconnectedAt[16] = "null";
+  if (connected) snprintf(rssi, sizeof(rssi), "%d", static_cast<int>(WiFi.RSSI()));
+  if (disconnects != 0) {
+    snprintf(reason, sizeof(reason), "%lu", static_cast<unsigned long>(deviceDiagnostics.lastDisconnectReason.load()));
+    snprintf(disconnectedAt, sizeof(disconnectedAt), "%lu",
+             static_cast<unsigned long>(deviceDiagnostics.lastDisconnectUptimeSeconds.load()));
+  }
+  const esp_reset_reason_t reset = esp_reset_reason();
+  char body[1024];
+  const int size = snprintf(body, sizeof(body),
+      "{\"version\":\"%s\",\"uptimeSeconds\":%llu,"
+      "\"wifi\":{\"connected\":%s,\"rssiDbm\":%s,\"sleepEnabled\":%s,\"connections\":%lu,"
+      "\"disconnects\":%lu,\"lastDisconnectReason\":%s,\"lastDisconnectUptimeSeconds\":%s},"
+      "\"memory\":{\"freeBytes\":%lu,\"minimumFreeBytes\":%lu,\"largestFreeBlockBytes\":%lu},"
+      "\"reset\":{\"code\":%d,\"reason\":\"%s\"},\"loopMaxMs\":%lu,\"timeSynchronized\":%s,"
+      "\"volumeUpLimitMs\":%lu,\"volumeWatchdogMs\":%lu}",
+      ONKYO_FIRMWARE_VERSION, static_cast<unsigned long long>(restartUptimeMs() / 1000),
+      connected ? "true" : "false", rssi, WiFi.getSleep() != WIFI_PS_NONE ? "true" : "false",
+      static_cast<unsigned long>(deviceDiagnostics.connections.load()), static_cast<unsigned long>(disconnects),
+      reason, disconnectedAt, static_cast<unsigned long>(ESP.getFreeHeap()),
+      static_cast<unsigned long>(ESP.getMinFreeHeap()), static_cast<unsigned long>(ESP.getMaxAllocHeap()),
+      static_cast<int>(reset), resetReasonName(reset), static_cast<unsigned long>(deviceDiagnostics.maxLoopMs),
+      timeSynchronized.load() ? "true" : "false", static_cast<unsigned long>(VOLUME_UP_MAX_HOLD_MS),
+      static_cast<unsigned long>(VOLUME_WATCHDOG_MS));
+  server.sendHeader("Cache-Control", "no-store");
+  if (size < 0 || static_cast<size_t>(size) >= sizeof(body)) {
+    server.send(500, "application/json", "{\"ok\":false}");
+    return;
+  }
+  server.send(200, "application/json", body);
+}
+
+void handleDiagnosticsPage() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send_P(200, "text/html; charset=utf-8", DIAGNOSTICS_PAGE);
 }
 
 void onTimeSynchronized(struct timeval *timeValue) {
@@ -184,7 +255,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     button { min-height: 56px; border: 1px solid #666; border-radius: 5px; background: linear-gradient(135deg, #3b3b3b, #1d1d1d); box-shadow: inset 0 1px #696969, 0 2px 2px #000; color: inherit; font: inherit; font-size: 1rem; font-weight: 650; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     button:focus { outline: none; }
     button:focus-visible { outline: 2px solid #d1c8ba; outline-offset: 2px; }
-    button:active { transform: translateY(1px); background: #111; box-shadow: inset 0 2px 3px #000; }
+    button:active:not([data-hold-command]), button[data-hold-command].hold-pressed { transform: translateY(1px); background: #111; box-shadow: inset 0 2px 3px #000; }
     .power { width: 100%; background: linear-gradient(135deg, #9f3b35, #64231f); border-color: #c27067; font-size: 1.2rem; letter-spacing: .1em; }
     .power:active { background: #55201d; }
     .label { margin: 25px 0 9px; padding-top: 7px; border-top: 1px solid #555; color: #c8c1b6; font-size: .72rem; letter-spacing: .12em; }
@@ -196,6 +267,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     .mute { width: 100%; margin-top: 10px; }
     .advanced-link { display: block; margin-top: 26px; color: #d1c8ba; font-size: .82rem; text-align: center; }
     .firmware-version { margin: 14px 0 0; color: #bbb5aa; font-size: .72rem; text-align: center; }
+    .diagnostics-link { display: block; margin-top: 12px; color: #bbb5aa; font-size: .72rem; text-align: center; }
     @media (min-width: 431px) { main { min-height: auto; border-radius: 9px; } }
   </style>
 </head>
@@ -224,6 +296,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     </div>
     <a class="advanced-link" href="/advanced">Otwórz pilot Advanced</a>
     <p class="firmware-version">Firmware v)HTML" ONKYO_FIRMWARE_VERSION R"HTML(</p>
+    <a class="diagnostics-link" href="/status">Diagnostyka</a>
   </main>
   <script>
     let requestInFlight = false;
@@ -287,7 +360,7 @@ bool hasLearnedCode(const RemoteFunction &function) {
 String remotePageHead(const char *title) {
   String page = F("<!doctype html><html lang=\"pl\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"theme-color\" content=\"#101010\"><title>");
   page += title;
-  page += F("</title><style>:root{color-scheme:dark;font-family:system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#101010;color:#f5f2ed}main{max-width:760px;margin:auto;padding:24px 18px 36px;background:#181818}h1{margin:0;font-size:1.15rem;letter-spacing:.07em}h2{margin:28px 0 9px;color:#aaa6a0;font-size:.75rem;letter-spacing:.12em}.hint,#status{line-height:1.45;color:#c2bdb5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}button{min-height:54px;border:0;border-radius:14px;background:#292929;color:inherit;font:inherit;font-weight:650;cursor:pointer}button:active{transform:scale(.98);background:#393939}.missing{opacity:.52}.learning{background:#806326}.saved:after{content:' ✓';color:#91d27a}a{display:block;margin-top:28px;color:#aaa6a0;text-align:center}@media(min-width:600px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}main{margin-top:20px;border-radius:28px;box-shadow:0 18px 50px #0008}}</style></head><body><main>");
+  page += F("</title><style>:root{color-scheme:dark;font-family:system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#101010;color:#f5f2ed}main{max-width:760px;margin:auto;padding:24px 18px 36px;background:#181818}h1{margin:0;font-size:1.15rem;letter-spacing:.07em}h2{margin:28px 0 9px;color:#aaa6a0;font-size:.75rem;letter-spacing:.12em}.hint,#status{line-height:1.45;color:#c2bdb5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}button{min-height:54px;border:0;border-radius:14px;background:#292929;color:inherit;font:inherit;font-weight:650;cursor:pointer}button:active:not([data-hold-command]){transform:scale(.98);background:#393939}.missing{opacity:.52}.learning{background:#806326}.saved:after{content:' ✓';color:#91d27a}a{display:block;margin-top:28px;color:#aaa6a0;text-align:center}@media(min-width:600px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}main{margin-top:20px;border-radius:28px;box-shadow:0 18px 50px #0008}}</style></head><body><main>");
   return page;
 }
 
@@ -337,7 +410,7 @@ String advancedButton(const char *id, bool learning = false) {
 }
 
 String remoteShellStyle() {
-  return F("<style>main{max-width:590px;background:linear-gradient(110deg,#111,#242424 52%,#121212);border:1px solid #585858;box-shadow:inset 0 0 0 2px #090909,0 18px 42px #0009}.remote{max-width:550px;margin:auto;border:1px solid #686868;padding:15px;background:#171717;box-shadow:inset 0 0 18px #000}.remote h1{text-align:center;margin:5px 0 15px;font-family:Georgia,serif;font-size:1.35rem;font-weight:900;letter-spacing:-.04em}.top,.inputs,.tuner-controls,.deck-controls,.cd-controls,.effects{display:grid;gap:6px}.top,.inputs{grid-template-columns:repeat(5,1fr)}.input-box,.tuner-box,.deck,.cd-box,.center-box,.rear-box,.muting-box,.effects-box{border:1px solid #626262;padding:6px}.box-label{text-align:center;font-size:.66rem;letter-spacing:.08em;color:#c7c0b5;margin:0 0 6px}.tuner-line{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:12px 0}.tuner-box{grid-column:3 / 6}.tuner-controls{grid-template-columns:repeat(3,1fr)}.decks{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.deck-a{grid-column:1 / 3}.deck-b{grid-column:4 / 6}.deck-controls{grid-template-columns:repeat(2,1fr)}.lower{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px;margin-top:12px}.cd-controls{grid-template-columns:repeat(2,1fr)}.cd-stop{grid-column:1 / 3;display:grid;place-items:center}.cd-stop .key{width:48%}.center-box,.rear-box,.muting-box{display:grid;gap:6px;align-content:start}.volume-label{margin-top:5px!important;border-top:1px solid #575757;padding-top:5px}.effects-box{width:61%;margin-top:6px}.effects{grid-template-columns:repeat(3,1fr)}.brand{width:61%;margin-top:16px;padding:13px 5px 3px;border-top:1px solid #555;color:#e4e0d7}.brand-onkyo{font-family:Georgia,serif;font-size:2.15rem;font-weight:900;letter-spacing:-.08em}.brand-ri{float:right;font-family:Georgia,serif;font-size:1.7rem;font-weight:900}.brand small{display:block;letter-spacing:.08em;font-size:.56rem}.brand b{float:right}.key{min-height:52px;padding:5px 3px;border:1px solid #6b6b6b;border-radius:3px;background:linear-gradient(135deg,#3f3f3f,#1c1c1c);box-shadow:inset 0 1px #777,0 2px 2px #000;color:#ece8df;font-size:.72rem;font-weight:700;line-height:1.05}.key:active{transform:translateY(1px);background:#101010;box-shadow:inset 0 2px 3px #000}.power-key{background:linear-gradient(135deg,#984038,#57211e);border-color:#bd746b}.unlearned{opacity:.46;border-style:dashed}.saved:after{content:' ✓';color:#91d27a}.learning{background:#806326;opacity:1}.legend{margin:12px 0 0;text-align:center;font-size:.78rem;color:#c5bfb4}.learn{color:#d7cfbf}.back{margin-top:14px}@media(max-width:420px){main{padding:20px 10px}.remote{padding:10px}.key{min-height:46px;font-size:.61rem}.top,.inputs{gap:4px}}</style>");
+  return F("<style>main{max-width:590px;background:linear-gradient(110deg,#111,#242424 52%,#121212);border:1px solid #585858;box-shadow:inset 0 0 0 2px #090909,0 18px 42px #0009}.remote{max-width:550px;margin:auto;border:1px solid #686868;padding:15px;background:#171717;box-shadow:inset 0 0 18px #000}.remote h1{text-align:center;margin:5px 0 15px;font-family:Georgia,serif;font-size:1.35rem;font-weight:900;letter-spacing:-.04em}.top,.inputs,.tuner-controls,.deck-controls,.cd-controls,.effects{display:grid;gap:6px}.top,.inputs{grid-template-columns:repeat(5,1fr)}.input-box,.tuner-box,.deck,.cd-box,.center-box,.rear-box,.muting-box,.effects-box{border:1px solid #626262;padding:6px}.box-label{text-align:center;font-size:.66rem;letter-spacing:.08em;color:#c7c0b5;margin:0 0 6px}.tuner-line{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:12px 0}.tuner-box{grid-column:3 / 6}.tuner-controls{grid-template-columns:repeat(3,1fr)}.decks{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.deck-a{grid-column:1 / 3}.deck-b{grid-column:4 / 6}.deck-controls{grid-template-columns:repeat(2,1fr)}.lower{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px;margin-top:12px}.cd-controls{grid-template-columns:repeat(2,1fr)}.cd-stop{grid-column:1 / 3;display:grid;place-items:center}.cd-stop .key{width:48%}.center-box,.rear-box,.muting-box{display:grid;gap:6px;align-content:start}.volume-label{margin-top:5px!important;border-top:1px solid #575757;padding-top:5px}.effects-box{width:61%;margin-top:6px}.effects{grid-template-columns:repeat(3,1fr)}.brand{width:61%;margin-top:16px;padding:13px 5px 3px;border-top:1px solid #555;color:#e4e0d7}.brand-onkyo{font-family:Georgia,serif;font-size:2.15rem;font-weight:900;letter-spacing:-.08em}.brand-ri{float:right;font-family:Georgia,serif;font-size:1.7rem;font-weight:900}.brand small{display:block;letter-spacing:.08em;font-size:.56rem}.brand b{float:right}.key{min-height:52px;padding:5px 3px;border:1px solid #6b6b6b;border-radius:3px;background:linear-gradient(135deg,#3f3f3f,#1c1c1c);box-shadow:inset 0 1px #777,0 2px 2px #000;color:#ece8df;font-size:.72rem;font-weight:700;line-height:1.05}.key:active:not([data-hold-command]),.key[data-hold-command].hold-pressed{transform:translateY(1px);background:#101010;box-shadow:inset 0 2px 3px #000}.power-key{background:linear-gradient(135deg,#984038,#57211e);border-color:#bd746b}.unlearned{opacity:.46;border-style:dashed}.saved:after{content:' ✓';color:#91d27a}.learning{background:#806326;opacity:1}.legend{margin:12px 0 0;text-align:center;font-size:.78rem;color:#c5bfb4}.learn{color:#d7cfbf}.back{margin-top:14px}@media(max-width:420px){main{padding:20px 10px}.remote{padding:10px}.key{min-height:46px;font-size:.61rem}.top,.inputs{gap:4px}}</style>");
 }
 
 String renderRemoteShell(bool learning) {
@@ -376,7 +449,7 @@ void handleAdvancedPage() {
   page += F("<style>.firmware-version{margin:14px 0 0;color:#bbb5aa;font-size:.72rem;text-align:center}.remote button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}.remote button:focus{outline:none}.remote button:focus-visible{outline:2px solid #d1c8ba;outline-offset:2px}</style>");
   page += renderRemoteShell(false);
   page += F("<a class=\"back\" href=\"/\">Wróć do wersji Basic</a><script>document.querySelectorAll('[data-id]:not([data-hold-command])').forEach(b=>b.onclick=()=>fetch('/command',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)}));</script><script src=\"/volume.js\"></script>");
-  page += F("<p class=\"firmware-version\">Firmware v" ONKYO_FIRMWARE_VERSION "</p></main></body></html>");
+  page += F("<p class=\"firmware-version\">Firmware v" ONKYO_FIRMWARE_VERSION "</p><a href=\"/status\" style=\"margin-top:12px;font-size:.72rem\">Diagnostyka</a></main></body></html>");
   server.send(200, "text/html", page);
 }
 
@@ -668,7 +741,9 @@ void repeatHeldVolume() {
 }
 
 void connectToWiFi() {
+  WiFi.onEvent(onWiFiDiagnostics);
   WiFi.mode(WIFI_STA);
+  if (!WiFi.setSleep(false)) Serial.println(F("Cannot disable Wi-Fi power saving."));
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.print("Connecting to Wi-Fi");
@@ -685,7 +760,7 @@ void connectToWiFi() {
 void startOta() {
   ArduinoOTA.setHostname(OTA_HOSTNAME);
   ArduinoOTA.setPassword(OTA_PASSWORD);
-  ArduinoOTA.setTimeout(OTA_TIMEOUT_SECONDS);
+  ArduinoOTA.setTimeout(OTA_RECEIVE_TIMEOUT_MS);
   ArduinoOTA.onStart([]() {
     otaInProgress = true;
     recordUserActivity();
@@ -747,6 +822,8 @@ void setup() {
 
   server.on("/", HTTP_GET, handleRoot);
   server.on("/version", HTTP_GET, handleVersion);
+  server.on("/diagnostics", HTTP_GET, handleDiagnostics);
+  server.on("/status", HTTP_GET, handleDiagnosticsPage);
   server.on("/advanced", HTTP_GET, handleAdvancedPage);
   server.on("/manifest.webmanifest", HTTP_GET, handleManifest);
   server.on("/icon.svg", HTTP_GET, handleIcon);
@@ -765,9 +842,14 @@ void setup() {
 }
 
 void loop() {
+  const uint64_t started = restartUptimeMs();
   ArduinoOTA.handle();
   server.handleClient();
   repeatHeldVolume();
   processLearnedCommand();
   handleDailyRestart();
+  const uint64_t elapsed = restartUptimeMs() - started;
+  if (elapsed > deviceDiagnostics.maxLoopMs) {
+    deviceDiagnostics.maxLoopMs = elapsed > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(elapsed);
+  }
 }

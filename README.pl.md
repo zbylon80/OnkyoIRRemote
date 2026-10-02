@@ -6,7 +6,7 @@
 
 Numer wersji ma jedno źródło: [FirmwareVersion.h](firmware/OnkyoRemote/FirmwareVersion.h).
 Jest widoczny na dole paneli Basic i Advanced, w logu uruchomienia na porcie
-szeregowym oraz w odpowiedzi JSON z `GET /version`, np. `{"version":"1.0.0"}`.
+szeregowym oraz w odpowiedzi JSON z `GET /version`, np. `{"version":"1.1.0"}`.
 Ten adres podaje wersję faktycznie działającą na ESP32.
 
 Stosujemy `MAJOR.MINOR.PATCH`: PATCH zwiększamy przy poprawkach, MINOR przy nowych
@@ -19,8 +19,9 @@ Zmiana źródeł lub kompilacja nie aktualizuje urządzenia.
 
 Krótkie naciśnięcie wysyła jedną komendę IR. Powtarzanie rusza tylko przy nadal
 przytrzymanym przycisku, 350 ms po otrzymaniu odpowiedzi na pierwszą komendę.
-W Basic i Advanced ESP32 zatrzymuje każde zgłaśnianie po dwóch sekundach od
+W Basic i Advanced ESP32 zatrzymuje każde zgłaśnianie po trzech sekundach od
 pierwszej komendy, niezależnie od podtrzymywania przez telefon lub komputer.
+Przy osiągnięciu limitu przycisk także wizualnie się zwalnia, mimo trzymania palca.
 Aby zgłaśniać dalej, trzeba puścić i ponownie nacisnąć przycisk.
 Ściszanie i strojenie nie mają dodatkowego limitu przytrzymania; wszystkie akcje
 nadal kończą się po ponad dwóch sekundach bez poprawnego podtrzymania.
@@ -41,6 +42,23 @@ z kierunkiem wysyła pojedynczą komendę i zwraca identyfikator używany nastę
 przez `/volume/start`, `/volume/keepalive` i `/volume/stop`. Po wgraniu tej wersji
 należy odświeżyć istniejące karty pilota; poprzednie żądania przytrzymania bez
 identyfikatora są odrzucane.
+
+## Diagnostyka stabilności
+
+Od wersji 1.1.0 usypianie Wi-Fi jest wyłączone, aby zmniejszyć opóźnienia;
+oznacza to większy pobór prądu przez radio. Link **Diagnostyka** pod numerem
+wersji otwiera `/status`. Pod `/diagnostics` dostępne są te same dane w JSON.
+Strona odczytuje dane po otwarciu i po ręcznym odświeżeniu.
+
+Pokazuje wersję i czas działania, sygnał Wi-Fi w dBm, ustawienie usypiania,
+liczbę połączeń i rozłączeń oraz kod i czas ostatniego rozłączenia od startu,
+wolną i minimalną wolną pamięć oraz największy wolny blok, powód restartu,
+najdłuższy obieg programu, synchronizację zegara i limity głośności.
+Brak danych o sygnale lub rozłączeniu jest oznaczony jako `null` w JSON.
+Liczniki i maksymalne czasy dotyczą bieżącego uruchomienia, nie trwałej historii.
+Powód restartu pochodzi z SDK ESP32: restart programowy nie rozróżnia OTA od
+nocnego restartu. Odczyty nie zerują czasu bezczynności, nie ujawniają danych
+Wi-Fi ani OTA i nie wysyłają komend do wzmacniacza.
 
 ## Nocny restart
 

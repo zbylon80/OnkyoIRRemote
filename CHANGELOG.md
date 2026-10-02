@@ -3,6 +3,24 @@
 Firmware versions use `MAJOR.MINOR.PATCH`. Entries marked **Unreleased** describe
 prepared changes; they do not mean that a device has been updated.
 
+## 1.1.0 — 2026-10-02
+
+- Disable Wi-Fi modem sleep to reduce network latency; this increases radio
+  power consumption.
+- Correct OTA timeout units: tolerate five seconds without incoming data
+  instead of the accidental 60 milliseconds.
+- Add an on-demand diagnostics page at `/status` linked from both panels, and
+  JSON at `/diagnostics` with Wi-Fi signal/power saving, connection counters,
+  last disconnect code/time, uptime, memory, reset reason and maximum loop time.
+  Diagnostics do not poll in the background, count as control use or store
+  credentials. Counters reset on reboot.
+- Extend the volume-up hold limit to three seconds. Use a single firmware
+  constant for the ESP32 policy and browser timer. Keep the two-second
+  disconnect watchdog and request timeouts.
+- Control the pressed appearance through the actual hold state, so reaching
+  the limit visually releases the button even while the pointer is held.
+  Release is still required before another up hold can start.
+
 ## 1.0.0 — 2026-10-02
 
 - Introduce explicit firmware versioning, defined in `FirmwareVersion.h`.

@@ -4,13 +4,17 @@ const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const header = fs.readFileSync(path.join(__dirname, '../firmware/OnkyoRemote/VolumeControls.h'), 'utf8');
-const script = header.match(/R"JS\(([\s\S]*?)\)JS"/)[1];
+const policy = fs.readFileSync(path.join(__dirname, '../firmware/OnkyoRemote/VolumeHoldSafety.h'), 'utf8');
+const limit = policy.match(/#define ONKYO_VOLUME_UP_MAX_HOLD_MS (\d+)/)[1];
+const script = [...header.matchAll(/R"JS\(([\s\S]*?)\)JS"/g)].map(part => part[1]).join(limit);
+assert.equal(Number(limit), 3000);
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
 function environment(command = 'VOL+') {
   const listeners = {}, buttonEvents = {}, windowEvents = {}, timers = new Map(), requests = [];
   let timerId = 0;
-  const button = {dataset: {holdCommand: command}, setPointerCapture() {},
+  const classes = new Set();
+  const button = {classList: {add(name) { classes.add(name); }, remove(name) { classes.delete(name); }}, dataset: {holdCommand: command}, setPointerCapture() {},
     addEventListener(type, fn) { buttonEvents[type] = fn; }};
   const document = {hidden: false, querySelectorAll: () => [button],
     addEventListener(type, fn) { listeners[type] = fn; }};
@@ -29,7 +33,7 @@ function environment(command = 'VOL+') {
     }
   });
   const event = {pointerId: 1, button: 0, isPrimary: true, preventDefault() {}};
-  return {requests, timers, document, windowEvents,
+  return {requests, timers, document, windowEvents, classes,
     down() { buttonEvents.pointerdown(event); }, up() { listeners.pointerup(event); },
     loseCapture() { buttonEvents.lostpointercapture(event); },
     async tick(delay) {
@@ -62,8 +66,9 @@ async function arm(env, session = '123') {
   assert.equal(env.timers.size, 0);
 
   // Up stops at the local cap without needing pointerup, and never auto-restarts.
-  env = environment(); await arm(env); await env.tick(2000);
+  env = environment(); await arm(env); assert.equal(env.classes.has('hold-pressed'), true); await env.tick(3000);
   assert.equal(env.requests.at(-1).url, '/volume/stop');
+  assert.equal(env.classes.has('hold-pressed'), false);
   env.requests.at(-1).finish(); await flush();
   assert.equal(env.timers.size, 0);
   const capped = env.requests.length;
@@ -77,18 +82,20 @@ async function arm(env, session = '123') {
 
   // Down has no extra cap; slow HTTP permits only one in-flight renewal.
   env = environment('VOL-'); await arm(env);
-  assert.equal(env.hasTimer(2000), false);
+  assert.equal(env.hasTimer(3000), false);
   await env.tick(150); const pendingRenewal = env.requests.at(-1);
   assert.equal(pendingRenewal.url, '/volume/keepalive');
   assert.equal(env.hasTimer(150), false);
   pendingRenewal.finish(); await flush(); assert.equal(env.hasTimer(150), true);
   env.loseCapture(); assert.equal(env.requests.at(-1).url, '/volume/stop');
+  assert.equal(env.classes.has('hold-pressed'), false);
 
   // A failure from the old gesture cannot stop the new one.
   env = environment(); await arm(env, '3'); await env.tick(150);
   const oldRenewal = env.requests.at(-1); env.up(); await arm(env, '4');
   const before = env.requests.length; oldRenewal.reject(new Error('late failure')); await flush();
   assert.equal(env.requests.length, before); assert.equal(env.hasTimer(150), true);
+  assert.equal(env.classes.has('hold-pressed'), true);
   env.windowEvents.blur(); assert.equal(env.requests.at(-1).values.session, '4');
 
   // Multiple taps do not accumulate presses while the initial request stalls.

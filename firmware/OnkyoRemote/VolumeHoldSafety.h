@@ -2,7 +2,8 @@
 
 #include <stdint.h>
 
-constexpr uint32_t VOLUME_UP_MAX_HOLD_MS = 2000;
+#define ONKYO_VOLUME_UP_MAX_HOLD_MS 3000
+constexpr uint32_t VOLUME_UP_MAX_HOLD_MS = ONKYO_VOLUME_UP_MAX_HOLD_MS;
 
 // A prepared hold never repeats until started. Closing it also rejects a start
 // which arrives later. The boot identifier prevents reuse across reboots.
