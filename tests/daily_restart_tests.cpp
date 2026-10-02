@@ -4,6 +4,11 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <map>
+#include <cerrno>
+#include <cstdlib>
+#include <cstdio>
+#include "VolumeHoldSafety.h"
 #include "DailyRestart.h"
 #include "FirmwareVersion.h"
 
@@ -45,8 +50,14 @@ struct FakeSerial {
 struct FakeESP { void restart() { ++resetCount; events.push_back("restart"); } } ESP;
 constexpr int IR_SEND_PIN = 26, LOW = 0;
 void digitalWrite(int, int) { events.push_back("low"); }
+using String = std::string;
 struct FakeServer {
-  void send(int, const char *, const char *) {}
+  std::map<std::string, std::string> args;
+  int status = 0;
+  std::string body;
+  bool hasArg(const char *key) { return args.count(key) != 0; }
+  String arg(const char *key) { return args.count(key) ? args.at(key) : ""; }
+  void send(int code, const char *, const char *value) { status = code; body = value; }
   void send_P(int, const char *, const char *) {}
   void sendHeader(const char *, const char *) {}
 } server;
@@ -69,10 +80,22 @@ void (*syncCallback)(timeval *) = nullptr;
 void sntp_set_time_sync_notification_cb(void (*cb)(timeval *)) { syncCallback = cb; }
 void configTzTime(const char *zone, const char *, const char *) { assert(std::string(zone) == RESTART_TIME_ZONE); }
 DailyRestartPolicy dailyRestart;
+VolumeHoldSafety volumeSafety;
+const char *preparedVolumeCommand = nullptr;
+constexpr unsigned long VOLUME_WATCHDOG_MS = 2000, VOLUME_REPEAT_INTERVAL_MS = 110;
+unsigned long lastVolumeSendMs = 0;
+bool irTransmissionEnabled = true;
+const char *heldVolumeCommand = nullptr, *learningCommand = nullptr;
+int irCommands = 0;
+bool sendOnkyoCommand(const String &) {
+  if (!irTransmissionEnabled || learningCommand != nullptr) return false;
+  ++irCommands;
+  dailyRestart.recordActivity(fakeUptime);
+  return true;
+}
 std::atomic<bool> timeSynchronized{false};
 bool restartStorageReady = true, otaInProgress = false;
 uint64_t lastRestartCheckMs = 0;
-const char *heldVolumeCommand = nullptr, *learningCommand = nullptr;
 unsigned long lastVolumeSignalMs = 0;
 unsigned long millis() { return static_cast<unsigned long>(fakeUptime); }
 #define time fakeTime
@@ -92,6 +115,23 @@ void resetFixture() {
   restartStorageReady = true; otaInProgress = false; timeSynchronized.store(true);
   lastRestartCheckMs = 0; heldVolumeCommand = nullptr; learningCommand = nullptr;
   dailyRestart.begin(0, 0);
+  volumeSafety.begin(0x1234);
+  preparedVolumeCommand = nullptr; irCommands = 0; irTransmissionEnabled = true;
+  lastVolumeSignalMs = lastVolumeSendMs = 0;
+  server.args.clear(); server.status = 0; server.body.clear();
+}
+
+uint64_t press(const char *direction) {
+  server.args = {{"direction", direction}};
+  handleVolumePress();
+  assert(server.status == 200);
+  const std::string marker = "\"session\":\"";
+  const size_t from = server.body.find(marker) + marker.size();
+  return std::stoull(server.body.substr(from, server.body.find('"', from) - from));
+}
+void start(uint64_t session) {
+  server.args = {{"session", std::to_string(session)}};
+  handleVolumeStart();
 }
 
 int main() {
@@ -183,9 +223,85 @@ int main() {
   resetFixture(); fakeUptime = RESTART_IDLE_MS - 1000;
   handleRoot(); handleVersion(); handleManifest(); handleIcon(); handleVolumeKeepalive();
   fakeUptime = RESTART_IDLE_MS; handleDailyRestart(); assert(resetCount == 1);
-  resetFixture(); fakeUptime = RESTART_IDLE_MS - 1000; heldVolumeCommand = "VOL+";
+  resetFixture(); fakeUptime = RESTART_IDLE_MS - 1000;
+  const uint64_t active = volumeSafety.prepare(false, static_cast<uint32_t>(fakeUptime));
+  volumeSafety.start(active, static_cast<uint32_t>(fakeUptime)); heldVolumeCommand = "VOL-";
+  lastVolumeSignalMs = static_cast<unsigned long>(fakeUptime);
+  server.args = {{"session", std::to_string(active)}};
   handleVolumeKeepalive(); handleVolumeStop();
   fakeUptime = RESTART_IDLE_MS; handleDailyRestart(); assert(resetCount == 0);
   fakeUptime += RESTART_IDLE_MS; handleDailyRestart(); assert(resetCount == 1);
-  std::cout << "Daily restart policy and actual sketch integration tests passed (no hardware actions).\n";
+  // A short press sends exactly one command and never arms repetition.
+  resetFixture();
+  uint64_t first = press("up");
+  assert(irCommands == 1 && heldVolumeCommand == nullptr);
+  fakeUptime = 1000; repeatHeldVolume(); assert(irCommands == 1);
+  // Stop arriving before start permanently closes that session.
+  server.args = {{"session", std::to_string(first)}};
+  handleVolumeStop(); start(first);
+  assert(server.status == 409 && heldVolumeCommand == nullptr && irCommands == 1);
+
+  // Frequent renewals and duplicate starts cannot extend the two-second cap.
+  resetFixture(); first = press("up"); fakeUptime = 350; start(first);
+  assert(server.status == 200 && irCommands == 1);
+  for (fakeUptime = 500; fakeUptime < 2000; fakeUptime += 150) {
+    handleVolumeKeepalive(); repeatHeldVolume(); assert(heldVolumeCommand != nullptr);
+  }
+  fakeUptime = 1999; start(first); assert(server.status == 200);
+  const int beforeLimit = irCommands;
+  fakeUptime = 2000; handleVolumeKeepalive(); repeatHeldVolume();
+  assert(server.status == 409 && heldVolumeCommand == nullptr && irCommands == beforeLimit);
+  fakeUptime = 2100; start(first); assert(server.status == 409);
+  // A late first start also counts from the initial press, not from its arrival.
+  resetFixture(); first = press("up"); fakeUptime = 2000; start(first);
+  assert(server.status == 409 && heldVolumeCommand == nullptr && irCommands == 1);
+
+  // An old stop/renew/start cannot stop, sustain or replace a newer hold.
+  resetFixture(); first = press("up"); start(first);
+  uint64_t second = press("down"); start(second);
+  const unsigned long signal = lastVolumeSignalMs;
+  fakeUptime = 100;
+  server.args = {{"session", std::to_string(first)}};
+  handleVolumeStop(); assert(std::string(heldVolumeCommand) == "VOL-");
+  handleVolumeKeepalive(); assert(server.status == 409 && lastVolumeSignalMs == signal);
+  start(first); assert(server.status == 409 && std::string(heldVolumeCommand) == "VOL-");
+  start(second); assert(server.status == 200);
+
+  // Down/tuning remain continuous with renewals, with the disconnect watchdog.
+  for (const char *direction : {"down", "tuning-up", "tuning-down"}) {
+    resetFixture(); first = press(direction); start(first);
+    for (fakeUptime = 150; fakeUptime <= 4500; fakeUptime += 150) {
+      handleVolumeKeepalive(); repeatHeldVolume(); assert(heldVolumeCommand != nullptr);
+    }
+    fakeUptime = 6501; // No renewal for more than two seconds.
+    handleVolumeKeepalive();
+    assert(server.status == 409 && heldVolumeCommand == nullptr);
+    const int atDisconnect = irCommands;
+    repeatHeldVolume(); assert(irCommands == atDisconnect);
+    start(first); assert(server.status == 409);
+  }
+
+  // Closed/pending sessions and tokens from an earlier boot cannot be reused.
+  resetFixture(); first = press("up"); stopVolume(); start(first);
+  assert(server.status == 409);
+  volumeSafety.begin(0x4321); second = press("down"); start(second);
+  start(first); assert(server.status == 409 && std::string(heldVolumeCommand) == "VOL-");
+  for (const char *invalid : {"", "-1", "+1", "123x", "18446744073709551616", "0"}) {
+    server.args = {{"session", invalid}};
+    assert(readVolumeSession() == 0);
+    handleVolumeStart(); assert(server.status == 409);
+  }
+
+  // Duration arithmetic handles the 32-bit millis() rollover.
+  VolumeHoldSafety safety;
+  safety.begin(42);
+  const uint64_t wrapped = safety.prepare(true, UINT32_MAX - 500);
+  assert(safety.start(wrapped, UINT32_MAX - 100) == VolumeHoldSafety::StartResult::Started);
+  assert(!safety.reachedLimit(1498)); assert(safety.reachedLimit(1499));
+  safety.closeAll(); assert(safety.start(wrapped, 1600) == VolumeHoldSafety::StartResult::Rejected);
+
+  resetFixture(); irTransmissionEnabled = false;
+  server.args = {{"direction", "up"}}; handleVolumePress();
+  assert(server.status == 400 && irCommands == 0 && heldVolumeCommand == nullptr);
+  std::cout << "Daily restart and volume safety integration tests passed (no hardware actions).\n";
 }

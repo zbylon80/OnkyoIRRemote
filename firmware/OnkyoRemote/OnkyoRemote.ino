@@ -6,10 +6,14 @@
 #include <atomic>
 #include <esp_sntp.h>
 #include <esp_timer.h>
+#include <esp_random.h>
+#include <errno.h>
 
 #include "WiFiConfig.h"
 #include "FirmwareVersion.h"
 #include "DailyRestart.h"
+#include "VolumeHoldSafety.h"
+#include "VolumeControls.h"
 
 constexpr uint8_t IR_SEND_PIN = 26;
 constexpr uint8_t IR_RECEIVE_PIN = 27;
@@ -90,6 +94,8 @@ std::atomic<bool> timeSynchronized{false};
 bool restartStorageReady = false;
 bool otaInProgress = false;
 uint64_t lastRestartCheckMs = 0;
+VolumeHoldSafety volumeSafety;
+const char *preparedVolumeCommand = nullptr;
 
 constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
 // Mobile browsers and Wi-Fi can delay a keepalive briefly.  Keep a finite
@@ -220,8 +226,6 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     <p class="firmware-version">Firmware v)HTML" ONKYO_FIRMWARE_VERSION R"HTML(</p>
   </main>
   <script>
-    let holdTimer = null;
-    let heldVolumeCommand = null;
     let requestInFlight = false;
     function sendCommand(command) {
       if (requestInFlight) return;
@@ -231,41 +235,12 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
         .catch(() => {})
         .finally(() => { requestInFlight = false; });
     }
-    function postVolume(path, body = '') {
-      return fetch(path, { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body });
-    }
-    function stopHolding() {
-      if (holdTimer !== null) { clearInterval(holdTimer); holdTimer = null; }
-      if (heldVolumeCommand !== null) {
-        heldVolumeCommand = null;
-        postVolume('/volume/stop').catch(() => {});
-      }
-    }
     document.querySelectorAll('[data-command]').forEach((button) => button.addEventListener('click', () => sendCommand(button.dataset.command)));
     document.querySelectorAll('[data-source]').forEach((button) => button.addEventListener('click', () => {
       sendCommand(button.dataset.source);
     }));
-    document.querySelectorAll('[data-hold-command]').forEach((button) => {
-      button.addEventListener('pointerdown', (event) => {
-        event.preventDefault();
-        stopHolding();
-        const command = button.dataset.holdCommand;
-        heldVolumeCommand = command;
-        button.setPointerCapture(event.pointerId);
-        const direction = command === 'VOL+' ? 'up' : command === 'VOL-' ? 'down' : command === 'TUNING+' ? 'tuning-up' : 'tuning-down';
-        postVolume('/volume/start', 'direction=' + direction)
-          .then((response) => { if (!response.ok) throw new Error('Volume failed'); })
-          .catch(() => { stopHolding(); });
-        holdTimer = setInterval(() => postVolume('/volume/keepalive').catch(() => stopHolding()), 150);
-      });
-      button.addEventListener('contextmenu', (event) => event.preventDefault());
-    });
-    document.addEventListener('pointerup', stopHolding);
-    document.addEventListener('pointercancel', stopHolding);
-    window.addEventListener('blur', stopHolding);
-    window.addEventListener('pagehide', stopHolding);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) stopHolding(); });
   </script>
+  <script src="/volume.js"></script>
 </body>
 </html>
 )HTML";
@@ -400,7 +375,7 @@ void handleAdvancedPage() {
   page += remoteShellStyle();
   page += F("<style>.firmware-version{margin:14px 0 0;color:#bbb5aa;font-size:.72rem;text-align:center}.remote button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}.remote button:focus{outline:none}.remote button:focus-visible{outline:2px solid #d1c8ba;outline-offset:2px}</style>");
   page += renderRemoteShell(false);
-  page += F("<a class=\"back\" href=\"/\">Wróć do wersji Basic</a><script>let holdTimer=null,heldVolumeCommand=null;const postVolume=(path,body='')=>fetch(path,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});function stopHolding(){if(holdTimer!==null){clearInterval(holdTimer);holdTimer=null}if(heldVolumeCommand!==null){heldVolumeCommand=null;postVolume('/volume/stop').catch(()=>{})}}document.querySelectorAll('[data-id]:not([data-hold-command])').forEach(b=>b.onclick=()=>fetch('/command',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)}));document.querySelectorAll('[data-hold-command]').forEach(b=>b.addEventListener('pointerdown',e=>{e.preventDefault();stopHolding();heldVolumeCommand=b.dataset.holdCommand;b.setPointerCapture(e.pointerId);const direction=heldVolumeCommand==='VOL+'?'up':'down';postVolume('/volume/start','direction='+direction).then(r=>{if(!r.ok)throw new Error('Volume failed')}).catch(stopHolding);holdTimer=setInterval(()=>postVolume('/volume/keepalive').catch(stopHolding),150)}));document.addEventListener('pointerup',stopHolding);document.addEventListener('pointercancel',stopHolding);window.addEventListener('blur',stopHolding);window.addEventListener('pagehide',stopHolding);document.addEventListener('visibilitychange',()=>{if(document.hidden)stopHolding()});</script>");
+  page += F("<a class=\"back\" href=\"/\">Wróć do wersji Basic</a><script>document.querySelectorAll('[data-id]:not([data-hold-command])').forEach(b=>b.onclick=()=>fetch('/command',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)}));</script><script src=\"/volume.js\"></script>");
   page += F("<p class=\"firmware-version\">Firmware v" ONKYO_FIRMWARE_VERSION "</p></main></body></html>");
   server.send(200, "text/html", page);
 }
@@ -433,6 +408,7 @@ void handleIcon() {
 }
 
 void stopVolume() {
+  volumeSafety.closeAll();
   heldVolumeCommand = nullptr;
 }
 
@@ -580,38 +556,99 @@ void handleCommand() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
-void handleVolumeStart() {
-  if (!server.hasArg("direction")) {
-    server.send(400, "application/json", "{\"ok\":false}");
-    return;
-  }
+void handleVolumeScript() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send_P(200, "application/javascript; charset=utf-8", VOLUME_SCRIPT);
+}
 
+uint64_t readVolumeSession() {
+  if (!server.hasArg("session")) return 0;
+  const String raw = server.arg("session");
+  if (raw.length() == 0 || raw.length() > 20) return 0;
+  for (unsigned int i = 0; i < raw.length(); ++i) {
+    if (raw[i] < '0' || raw[i] > '9') return 0;
+  }
+  errno = 0;
+  char *end = nullptr;
+  const uint64_t session = strtoull(raw.c_str(), &end, 10);
+  return errno == ERANGE || end == nullptr || *end != '\0' ? 0 : session;
+}
+
+void handleVolumePress() {
   const String direction = server.arg("direction");
-  heldVolumeCommand = direction == "up" ? "VOL+" : direction == "down" ? "VOL-"
-                      : direction == "tuning-up" ? "TUNING+" : direction == "tuning-down" ? "TUNING-" : nullptr;
-  if (heldVolumeCommand != nullptr) recordUserActivity();
-  if (heldVolumeCommand == nullptr || !sendOnkyoCommand(heldVolumeCommand)) {
-    stopVolume();
+  const char *command = direction == "up" ? "VOL+" : direction == "down" ? "VOL-"
+                        : direction == "tuning-up" ? "TUNING+" : direction == "tuning-down" ? "TUNING-" : nullptr;
+  if (command == nullptr) {
     server.send(400, "application/json", "{\"ok\":false}");
     return;
   }
+  stopVolume();
+  const uint64_t session = volumeSafety.prepare(direction == "up", millis());
+  preparedVolumeCommand = command;
+  // A short tap emits one command, without arming any repetition.
+  if (session == 0 || !sendOnkyoCommand(command)) {
+    volumeSafety.cancel(session);
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  char response[64];
+  snprintf(response, sizeof(response), "{\"ok\":true,\"session\":\"%llu\"}",
+           static_cast<unsigned long long>(session));
+  server.send(200, "application/json", response);
+}
 
-  lastVolumeSignalMs = millis();
-  lastVolumeSendMs = lastVolumeSignalMs;
+void expireVolumeHold(unsigned long now) {
+  if (heldVolumeCommand != nullptr &&
+      (volumeSafety.reachedLimit(now) || now - lastVolumeSignalMs > VOLUME_WATCHDOG_MS)) {
+    stopVolume();
+  }
+}
+
+void handleVolumeStart() {
+  const unsigned long now = millis();
+  expireVolumeHold(now);
+  const auto result = volumeSafety.start(readVolumeSession(), now);
+  if (result == VolumeHoldSafety::StartResult::Rejected) {
+    server.send(409, "application/json", "{\"ok\":false}");
+    return;
+  }
+  if (result == VolumeHoldSafety::StartResult::Started) {
+    if (!irTransmissionEnabled || learningCommand != nullptr || preparedVolumeCommand == nullptr) {
+      stopVolume();
+      server.send(409, "application/json", "{\"ok\":false}");
+      return;
+    }
+    heldVolumeCommand = preparedVolumeCommand;
+    recordUserActivity();
+    lastVolumeSignalMs = now;
+    lastVolumeSendMs = now;
+  }
+  // Duplicate starts never reset the hold deadline or emit another IR command.
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
 void handleVolumeKeepalive() {
-  if (heldVolumeCommand != nullptr) {
-    recordUserActivity();
-    lastVolumeSignalMs = millis();
+  const unsigned long now = millis();
+  expireVolumeHold(now);
+  if (heldVolumeCommand == nullptr || !volumeSafety.matches(readVolumeSession())) {
+    server.send(409, "application/json", "{\"ok\":false}");
+    return;
   }
+  recordUserActivity();
+  lastVolumeSignalMs = now;
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
 void handleVolumeStop() {
-  if (heldVolumeCommand != nullptr) recordUserActivity();
-  stopVolume();
+  const uint64_t session = readVolumeSession();
+  if (session == 0) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  if (volumeSafety.cancel(session)) {
+    recordUserActivity();
+    heldVolumeCommand = nullptr;
+  }
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -621,10 +658,8 @@ void repeatHeldVolume() {
   }
 
   const unsigned long now = millis();
-  if (now - lastVolumeSignalMs > VOLUME_WATCHDOG_MS) {
-    stopVolume();
-    return;
-  }
+  expireVolumeHold(now);
+  if (heldVolumeCommand == nullptr) return;
 
   if (now - lastVolumeSendMs >= VOLUME_REPEAT_INTERVAL_MS) {
     sendOnkyoCommand(heldVolumeCommand);
@@ -707,6 +742,7 @@ void setup() {
 
   connectToWiFi();
   startTimeSynchronization();
+  volumeSafety.begin(esp_random());
   startOta();
 
   server.on("/", HTTP_GET, handleRoot);
@@ -715,6 +751,8 @@ void setup() {
   server.on("/manifest.webmanifest", HTTP_GET, handleManifest);
   server.on("/icon.svg", HTTP_GET, handleIcon);
   server.on("/command", HTTP_POST, handleCommand);
+  server.on("/volume.js", HTTP_GET, handleVolumeScript);
+  server.on("/volume/press", HTTP_POST, handleVolumePress);
   server.on("/volume/start", HTTP_POST, handleVolumeStart);
   server.on("/volume/keepalive", HTTP_POST, handleVolumeKeepalive);
   server.on("/volume/stop", HTTP_POST, handleVolumeStop);

@@ -24,6 +24,29 @@ features, and MAJOR for breaking changes. Record each release in
 pending version; after release, use a new version for subsequent firmware changes.
 Updating the source or compiling it does not update the device.
 
+## Volume-up protection
+
+A tap sends one IR command. Repeating starts only while the same press is still
+held, 350 ms after its initial response. On both Basic and Advanced, ESP32 ends
+each volume-up hold at two seconds from the first command, regardless of
+renewals from the phone or computer. Release and press again to continue.
+Volume-down and tuning have no additional hold limit; all holds still stop
+after more than two seconds without a valid renewal.
+
+Hold sessions reject delayed starts and stale renewals; an old stop cannot
+cancel a newer hold. Presses and renewals do not accumulate on a slow connection;
+requests time out after two seconds. There is no background connection polling. These rules
+limit runaway repetition; IR provides no amplifier volume feedback, so they
+cannot enforce an absolute maximum volume level.
+
+The pages share [VolumeControls.h](firmware/OnkyoRemote/VolumeControls.h), served
+at `/volume.js`; the firmware policy is in
+[VolumeHoldSafety.h](firmware/OnkyoRemote/VolumeHoldSafety.h). The browser sends
+`POST /volume/press` with a direction for the single command and a session token,
+then uses that token for `/volume/start`, `/volume/keepalive` and `/volume/stop`.
+Reload existing browser tabs after uploading this version; the previous hold
+API without a session token is rejected.
+
 ## Nightly restart
 
 Starting with version 1.0.0, the firmware checks for an idle restart in the local

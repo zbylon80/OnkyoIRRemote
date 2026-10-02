@@ -1,4 +1,4 @@
-"""Build/run real policy and sketch functions with simulated hardware (Windows/MSVC)."""
+"""Build/run restart and volume safety with simulated hardware (Windows/MSVC)."""
 from pathlib import Path
 import re
 import subprocess
@@ -8,7 +8,8 @@ sketch = root / 'firmware/OnkyoRemote'
 source = (sketch / 'OnkyoRemote.ino').read_text(encoding='utf-8')
 functions = ('restartUptimeMs', 'recordUserActivity', 'onTimeSynchronized',
              'startTimeSynchronization', 'handleDailyRestart', 'stopVolume',
-             'handleVolumeKeepalive', 'handleVolumeStop', 'handleVersion',
+             'readVolumeSession', 'handleVolumePress', 'expireVolumeHold', 'handleVolumeStart',
+             'handleVolumeKeepalive', 'handleVolumeStop', 'repeatHeldVolume', 'handleVersion',
              'handleRoot', 'handleManifest', 'handleIcon', 'startOta')
 pieces = []
 for name in functions:

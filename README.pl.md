@@ -15,6 +15,33 @@ w [CHANGELOG.md](CHANGELOG.md). Zmiany przed wydaniem mogą zbierać się pod je
 przygotowywanym numerem; po wydaniu kolejne zmiany dostają nowy numer.
 Zmiana źródeł lub kompilacja nie aktualizuje urządzenia.
 
+## Zabezpieczenie zgłaśniania
+
+Krótkie naciśnięcie wysyła jedną komendę IR. Powtarzanie rusza tylko przy nadal
+przytrzymanym przycisku, 350 ms po otrzymaniu odpowiedzi na pierwszą komendę.
+W Basic i Advanced ESP32 zatrzymuje każde zgłaśnianie po dwóch sekundach od
+pierwszej komendy, niezależnie od podtrzymywania przez telefon lub komputer.
+Aby zgłaśniać dalej, trzeba puścić i ponownie nacisnąć przycisk.
+Ściszanie i strojenie nie mają dodatkowego limitu przytrzymania; wszystkie akcje
+nadal kończą się po ponad dwóch sekundach bez poprawnego podtrzymania.
+
+Identyfikator akcji blokuje spóźnione rozpoczęcie i stare podtrzymanie; stare
+zatrzymanie nie przerywa nowej akcji. Początkowe komendy i podtrzymania nie
+gromadzą się przy wolnym połączeniu, a oczekiwanie na odpowiedź jest ograniczone
+do dwóch sekund.
+Nie ma odpytywania połączenia w tle. To zabezpieczenie ogranicza niekontrolowane
+powtarzanie. IR nie przekazuje aktualnej głośności wzmacniacza, więc pilot nie
+może narzucić konkretnego maksymalnego poziomu głośności.
+
+Wspólny skrypt paneli znajduje się w
+[VolumeControls.h](firmware/OnkyoRemote/VolumeControls.h) i jest udostępniany pod
+`/volume.js`. Zasady ESP32 znajdują się w
+[VolumeHoldSafety.h](firmware/OnkyoRemote/VolumeHoldSafety.h). `POST /volume/press`
+z kierunkiem wysyła pojedynczą komendę i zwraca identyfikator używany następnie
+przez `/volume/start`, `/volume/keepalive` i `/volume/stop`. Po wgraniu tej wersji
+należy odświeżyć istniejące karty pilota; poprzednie żądania przytrzymania bez
+identyfikatora są odrzucane.
+
 ## Nocny restart
 
 Od wersji 1.0.0 firmware szuka momentu na restart w oknie 03:00–05:00 czasu
