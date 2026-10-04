@@ -73,7 +73,13 @@ public final class ConfigureActivity extends Activity {
         WidgetSettings.saveDefault(this, endpoint);
         AppWidgetManager manager = AppWidgetManager.getInstance(this);
         if (manager.isRequestPinAppWidgetSupported()) {
-            manager.requestPinAppWidget(new ComponentName(this, OnkyoWidgetProvider.class), null, null);
+            Intent pinned = new Intent(this, PinWidgetReceiver.class).setAction(PinWidgetReceiver.ACTION)
+                    .setData(android.net.Uri.parse("onkyo://pin/" + java.util.UUID.randomUUID()))
+                    .putExtra(PinWidgetReceiver.EXTRA_ENDPOINT, endpoint);
+            // Launcher supplies EXTRA_APPWIDGET_ID only after the widget has been allocated.
+            android.app.PendingIntent callback = android.app.PendingIntent.getBroadcast(this, 0, pinned,
+                    android.app.PendingIntent.FLAG_ONE_SHOT | android.app.PendingIntent.FLAG_MUTABLE);
+            manager.requestPinAppWidget(new ComponentName(this, OnkyoWidgetProvider.class), null, callback);
         } else {
             result.setText(R.string.manual_add);
         }

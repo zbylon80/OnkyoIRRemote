@@ -14,7 +14,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-/** Commands are single IR presses. No retries, hold requests, or background polling. */
+/** Local HTTP API. No automatic retries of IR commands or volume session requests. */
 final class RemoteClient {
     static final Set<String> COMMANDS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "POWER", "VOL-", "VOL+", "MUTE", "TAPE-1", "CD", "PHONO", "TUNER",
@@ -31,11 +31,22 @@ final class RemoteClient {
         return request(endpoint, "/version", null);
     }
 
+    static String volume(String endpoint, String operation, String value) throws IOException {
+        if (!Arrays.asList("press", "start", "keepalive", "stop").contains(operation)) {
+            throw new IllegalArgumentException("Unknown volume operation");
+        }
+        String field = operation.equals("press") ? "direction" : "session";
+        byte[] body = (field + "=" + URLEncoder.encode(value, StandardCharsets.UTF_8.name()))
+                .getBytes(StandardCharsets.UTF_8);
+        return request(endpoint, "/volume/" + operation, body);
+    }
+
     private static String request(String endpoint, String path, byte[] body) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(RemoteEndpoint.normalize(endpoint) + path)
                 .openConnection(Proxy.NO_PROXY);
-        connection.setConnectTimeout(2000);
-        connection.setReadTimeout(2000);
+        int timeout = path.startsWith("/volume/") ? 400 : 2000;
+        connection.setConnectTimeout(timeout);
+        connection.setReadTimeout(timeout);
         connection.setUseCaches(false);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "application/json");

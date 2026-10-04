@@ -7,6 +7,8 @@
     <string name="settings_icon">⚙</string>
     <string name="power">POWER</string>
     <string name="volume">VOLUME</string>
+    <string name="volume_service">Sterowanie głośnością Onkyo</string>
+    <string name="volume_service_note">Puść przycisk, aby zatrzymać</string>
     <string name="volume_down">−</string>
     <string name="volume_up">+</string>
     <string name="volume_down_description">Ciszej o jeden krok</string>

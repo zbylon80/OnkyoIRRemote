@@ -8,7 +8,9 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
 import android.widget.RemoteViews;
+import java.util.Collections;
 
 public final class OnkyoWidgetProvider extends AppWidgetProvider {
     static final int[] BUTTONS = {R.id.power, R.id.volume_down, R.id.volume_up, R.id.mute,
@@ -60,8 +62,14 @@ public final class OnkyoWidgetProvider extends AppWidgetProvider {
                     .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
                     .putExtra(CommandReceiver.EXTRA_GENERATION, generation)
                     .putExtra(CommandReceiver.EXTRA_COMMAND, COMMANDS[i]);
-            views.setOnClickPendingIntent(BUTTONS[i], PendingIntent.getBroadcast(context, 0, command,
-                    PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+            PendingIntent tap = PendingIntent.getBroadcast(context, 0, command,
+                    PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            views.setOnClickPendingIntent(BUTTONS[i], tap);
+            if (Build.VERSION.SDK_INT >= 36 && (i == 1 || i == 2)) {
+                int slot = i == 1 ? R.id.volume_down_slot : R.id.volume_up_slot;
+                views.setOnClickPendingIntent(slot, tap); // Accessibility click: one step.
+                views.setBoolean(slot, "setEnabled", configured && !busy);
+            }
             views.setBoolean(BUTTONS[i], "setEnabled", configured && !busy);
         }
         Intent configure = new Intent(context, ConfigureActivity.class)
@@ -70,6 +78,33 @@ public final class OnkyoWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.settings, PendingIntent.getActivity(context, 0, configure,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         views.setTextViewText(R.id.status, configured ? status : context.getString(R.string.not_configured));
+        if (Build.VERSION.SDK_INT >= 36) {
+            addVolumeTouch(context, views, id, generation, R.id.volume_down_slot, "down", configured && !busy);
+            addVolumeTouch(context, views, id, generation, R.id.volume_up_slot, "up", configured && !busy);
+        }
         return views;
+    }
+
+    @android.annotation.TargetApi(36)
+    private static void addVolumeTouch(Context context, RemoteViews widget, int id, long generation,
+                                       int slot, String direction, boolean enabled) {
+        widget.removeAllViews(slot);
+        RemoteViews touch = new RemoteViews(new RemoteViews.DrawInstructions.Builder(
+                Collections.singletonList(VolumeTouchDocument.create())).build());
+        if (enabled) {
+            for (int event : new int[]{VolumeTouchDocument.DOWN, VolumeTouchDocument.UP, VolumeTouchDocument.CANCEL}) {
+                Intent intent = new Intent(context, VolumeService.class).setAction(VolumeService.ACTION)
+                        .setData(Uri.parse("onkyo://volume/" + id + "/" + direction + "/" + event))
+                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                        .putExtra(CommandReceiver.EXTRA_GENERATION, generation)
+                        .putExtra(VolumeService.EXTRA_DIRECTION, direction).putExtra(VolumeService.EXTRA_EVENT, event);
+                touch.setOnClickPendingIntent(event, PendingIntent.getForegroundService(context, 0, intent,
+                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_CANCEL_CURRENT));
+            }
+        }
+        widget.addView(slot, touch);
+        RemoteViews label = new RemoteViews(context.getPackageName(), R.layout.volume_touch_label);
+        label.setTextViewText(R.id.volume_touch_label, context.getString(direction.equals("up") ? R.string.volume_up : R.string.volume_down));
+        widget.addView(slot, label);
     }
 }

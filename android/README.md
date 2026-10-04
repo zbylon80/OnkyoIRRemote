@@ -1,8 +1,13 @@
 # Widżet Onkyo na Androida
 
-Aplikacja 0.1.0 udostępnia natywny widżet ekranu głównego z przyciskami
+Aplikacja 0.2.0 udostępnia natywny widżet ekranu głównego z przyciskami
 panelu Basic. Wymaga Androida 8.0 lub nowszego. Ustawienia są po polsku,
 oznaczenia klawiszy odpowiadają panelowi WWW.
+
+**Przytrzymanie głośności bezpośrednio na pulpicie wymaga Androida 16
+(API 36) lub nowszego.** Starsze wersje zachowują sterowanie pojedynczymi
+kliknięciami. Obsługa dotyku korzysta z publicznego `RemoteViews.DrawInstructions`
+i bazowego dokumentu Remote Compose API 6 (nagłówek 0.3).
 
 ## Instalacja
 
@@ -13,8 +18,9 @@ oznaczenia klawiszy odpowiadają panelowi WWW.
    Domyślny adres tej instalacji to `http://192.168.1.46`.
 3. Wybierz **Dodaj widżet do ekranu głównego**. Można też przytrzymać puste
    miejsce na ekranie głównym i wybrać **Widżety → Pilot Onkyo**.
-4. W konfiguracji widżetu zatwierdź adres przez **Zapisz widżet**.
-   Później zmień go ikoną koła zębatego na widżecie.
+4. Dodanie z aplikacji zapisuje wybrany adres automatycznie po przypięciu.
+   Przy dodawaniu z systemowej listy widżetów zatwierdź **Zapisz widżet**.
+   Później zmień adres ikoną koła zębatego na widżecie.
 
 Telefon i ESP32 muszą mieć dostęp do tej samej sieci lokalnej. Można wpisać
 sam IP, nazwę urządzenia lub adres HTTP z portem. Każdy widżet zapamiętuje
@@ -28,20 +34,35 @@ Widżet można powiększyć. Nie ma klawiszy ani linku Advanced.
 
 ## Działanie
 
-- Przyciski wysyłają `POST /command` z polem formularza `name`, np.
-  `name=VOL%2B`, bez otwierania aplikacji.
-- Jedno kliknięcie głośności wysyła jedną komendę. Widżet nie uruchamia
-  powtarzania; długie naciśnięcie służy Androidowi do obsługi widżetu.
+- POWER, MUTE, wejścia i stacje wysyłają `POST /command` z polem `name`,
+  bez otwierania aplikacji.
+- Na Androidzie 16 głośność używa istniejącego protokołu sesji firmware 1.1.0:
+  `POST /volume/press` (`direction=up/down`) daje jeden krok i identyfikator sesji.
+  Trzymanie przez 350 ms uruchamia `/volume/start`, następnie `/volume/keepalive`
+  co około 500 ms. Puszczenie lub anulowanie dotyku wysyła `/volume/stop`.
+  Wszystkie trzy żądania używają otrzymanego pola `session`.
+- Krótkie dotknięcie daje jeden krok. Puszczenie przed odpowiedzią `/volume/press`
+  nie uruchamia późniejszego powtarzania. Aplikacja kończy sesję po 3 sekundach;
+  można puścić i ponownie przytrzymać. Nie wznawia jej po zabiciu procesu.
+- Android wymaga krótkiej usługi pierwszoplanowej typu `connectedDevice`, aby
+  głośność działała także przy zamkniętej aplikacji. Usługa kończy się po sesji;
+  systemowy wpis **Sterowanie głośnością Onkyo** jest usuwany. Widżet nie otwiera
+  dodatkowego okna i nie wymaga pytania o zgodę na powiadomienia.
+- Przy rzeczywistej utracie połączenia lub zabiciu aplikacji watchdog ESP32
+  zatrzyma powtarzanie najpóźniej po 2 sekundach od ostatniego sygnału sesji.
+  Limit podgłaśniania w firmware pozostaje bez zmian: 3 sekundy od naciśnięcia.
+- Na Androidzie 8–15 głośność nadal wysyła pojedyncze `POST /command`.
 - Podczas żądania przyciski widżetów tego samego urządzenia są wyłączone.
   Identyfikator bieżącego układu odrzuca starsze kliknięcia, także dostarczone
   przez Androida dopiero po zakończeniu poprzedniego żądania.
+  Aktywna sesja głośności odrzuca nakładające się polecenia tego samego ESP32.
 - Błąd, brak odpowiedzi i niepoprawny JSON pokazują **Brak potwierdzenia**.
   Nie ma ponowień: ESP32 mogło wysłać IR przed utratą odpowiedzi.
 - **ESP32 przyjęło…** oznacza HTTP 200 i JSON `{"ok":true}`, a nie odczyt
   stanu amplitunera. IR nie przekazuje informacji o jego stanie ani głośności.
-- Test połączenia odczytuje wyłącznie `GET /version`. Nie ma cyklicznego
-  odpytywania ani stale działającej usługi w tle.
-- Lokalny HTTP jest zgodny z obecnym firmware; nie wymaga jego zmiany.
+- Test połączenia odczytuje wyłącznie `GET /version`. Po zakończeniu gestu
+  nie ma cyklicznego odpytywania ani stale działającej usługi w tle.
+- Lokalny HTTP jest zgodny z obecnym firmware 1.1.0; nie wymaga jego zmiany.
   Aplikacja nie zawiera danych Wi-Fi ani OTA.
 
 ## Budowanie
@@ -87,10 +108,28 @@ nie wysyła IR do fizycznego urządzenia.
 
 Testuje 11 przypisań przycisków, minimalny i powiększony układ, odczyt wersji,
 odrzucanie opóźnionych kliknięć, błąd HTTP, negatywny JSON, przekroczenie czasu
-odpowiedzi i kolejną poprawną komendę. Wyniki i zrzuty ekranu trafiają
+odpowiedzi i kolejną poprawną komendę. Na Androidzie 16 sprawdza też obie
+strony głośności, puszczenie przed odpowiedzią, anulowanie, limit 3 sekund,
+nieprawidłowy identyfikator sesji oraz brak keepalive po puszczeniu.
+Wyniki i zrzuty ekranu trafiają
 do `app/build/reports/widget-smoke/`.
 
+Oddzielny pakiet testowy pozwala sprawdzić prawdziwy pulpit i uruchomienie
+pilota z zabitego/uśpionego procesu. Nie wchodzi w skład APK pilota:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File android/build.ps1 -WithTouchProbe
+powershell -NoProfile -ExecutionPolicy Bypass -File android/test-touch-probe.ps1 -Production
+```
+
+Ten test działa wyłącznie na emulatorze Androida 16. Przypina widżet do Pixel
+Launcher, korzysta z atrapy ESP32 na `127.0.0.1:8989`, zabija/uśpia proces pilota
+i wstrzykuje rzeczywiste dotknięcia VOL+/VOL−. Sprawdza również, że przytrzymanie
+nie otwiera okna i nie przechodzi w przeciąganie widżetu. Raport i zrzut pulpitu:
+`probes/remote-touch/build/reports/touch-probe/`. Bez `-Production` uruchamia
+izolowany test samych zdarzeń DOWN/UP/CANCEL.
+
 Zweryfikowano w emulatorze Androida 16 (API 36.1) i przez `lintDebug`.
-Fizyczny telefon i reakcja amplitunera wymagają sprawdzenia po instalacji.
+Działanie na fizycznym telefonie potwierdził użytkownik po instalacji.
 Dokumentacja Androida: [widżety](https://developer.android.com/develop/ui/views/appwidgets/overview),
 [konfiguracja](https://developer.android.com/develop/ui/views/appwidgets/configuration).

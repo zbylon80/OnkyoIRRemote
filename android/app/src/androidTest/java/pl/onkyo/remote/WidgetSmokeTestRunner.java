@@ -38,6 +38,8 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
     private String endpoint;
     private String screenshotPath;
     private String smallScreenshotPath;
+    private long touchDown;
+    private long actionGeneration;
 
     @Override public void onCreate(Bundle args) {
         super.onCreate(args);
@@ -67,11 +69,16 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
 
             for (int i = 0; i < BASIC_BUTTONS.length; i++) {
                 final int button = BASIC_BUTTONS[i];
-                int expected = requestCount() + 1;
-                ui(() -> require(hostView.findViewById(button).performClick(), "Button not clickable"));
+                boolean volume = android.os.Build.VERSION.SDK_INT >= 36 && (button == R.id.volume_up || button == R.id.volume_down);
+                int before = requestCount();
+                int expected = before + (volume ? 2 : 1);
+                click(button);
                 awaitRequests(expected);
                 String encoded = java.net.URLEncoder.encode(BASIC_COMMANDS[i], "UTF-8");
-                require(requestAt(expected - 1).equals("POST /command name=" + encoded), "Incorrect command mapping");
+                if (volume) {
+                    require(requestAt(before).equals("POST /volume/press direction=" + (button == R.id.volume_up ? "up" : "down")), "Incorrect volume direction");
+                    require(requestAt(before + 1).equals("POST /volume/stop session=123"), "Tap started a repeat");
+                } else require(requestAt(before).equals("POST /command name=" + encoded), "Incorrect command mapping");
                 awaitStatus("ESP32 przyjęło " + BASIC_COMMANDS[i]);
                 require(requestCount() == expected, "Duplicate command");
             }
@@ -112,6 +119,8 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
             awaitStatus("ESP32 przyjęło TUNER");
             require(requestCount() == afterTimeout, "Timeout retried the command");
 
+            if (android.os.Build.VERSION.SDK_INT >= 36) checkHolds();
+
             if (screenshotPath != null) {
                 waitForIdleSync();
                 Thread.sleep(150); // Let the completed widget update reach the display frame.
@@ -120,17 +129,17 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
                 }
             }
             result.putString("stream", "PASS: 11 Basic button mappings; minimum/resized layout; read-only check; "
-                    + "concurrent tap dropped; HTTP/JSON errors; timeout and recovery; no retry.\n");
-            finish(ActivityResult.OK, result);
+                    + "concurrent tap dropped; HTTP/JSON errors; timeout and recovery; no retry; "
+                    + "hold/release both directions; release before acknowledgement; cancel; 3s cap; invalid session.\n");
         } catch (Throwable failure) {
             result.putString("stream", "FAIL: " + android.util.Log.getStackTraceString(failure));
-            finish(ActivityResult.FAIL, result);
         } finally {
             if (host != null) { host.stopListening(); host.deleteHost(); }
             if (target != null && widgetId != 0) WidgetSettings.delete(target, widgetId);
             if (server != null) try { server.close(); } catch (Exception ignored) { }
             if (activity != null) ui(() -> activity.finish());
         }
+        finish(result.getString("stream", "").startsWith("PASS:") ? ActivityResult.OK : ActivityResult.FAIL, result);
     }
 
     private void ui(Runnable action) {
@@ -152,7 +161,7 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
     }
 
     private void startServer() throws Exception {
-        server = new ServerSocket(0, 10, java.net.InetAddress.getByName("127.0.0.1"));
+        server = new ServerSocket(8989, 10, java.net.InetAddress.getByName("127.0.0.1"));
         new Thread(() -> {
             while (!server.isClosed()) {
                 try (Socket socket = server.accept()) {
@@ -174,7 +183,9 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
                     }
                     synchronized (requests) { requests.add(first.substring(0, first.lastIndexOf(' ')) + " " + new String(body)); }
                     if (delayMs > 0) Thread.sleep(delayMs);
-                    String reply = first.startsWith("GET /version ") ? "{\"version\":\"test\"}" : responseBody;
+                    String reply = first.startsWith("GET /version ") ? "{\"version\":\"test\"}" :
+                            first.startsWith("POST /volume/press ") && responseBody.equals("{\"ok\":true}")
+                                    ? "{\"ok\":true,\"session\":\"123\"}" : responseBody;
                     byte[] bytes = reply.getBytes(StandardCharsets.UTF_8);
                     socket.getOutputStream().write(("HTTP/1.1 " + responseCode + " Test\r\nContent-Type: application/json\r\nContent-Length: "
                             + bytes.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
@@ -186,6 +197,7 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
 
     private void setupHost() {
         host = new AppWidgetHost(target, 209);
+        host.deleteHost();
         widgetId = host.allocateAppWidgetId();
         AppWidgetManager manager = AppWidgetManager.getInstance(target);
         require(manager.bindAppWidgetIdIfAllowed(widgetId, new ComponentName(target, OnkyoWidgetProvider.class)),
@@ -208,7 +220,7 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
         ui(() -> {
             float density = activity.getResources().getDisplayMetrics().density;
             for (int id : BASIC_BUTTONS) {
-                View button = hostView.findViewById(id);
+                View button = key(id);
                 require(button != null && button.isShown(), "Missing/hidden Basic button");
                 require(button.getWidth() / density >= 48 && button.getHeight() / density >= 48,
                         "Button smaller than 48dp: " + target.getResources().getResourceEntryName(id)
@@ -219,7 +231,7 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
 
     private void clickAndExpectFailure(int button, String command) throws Exception {
         int expected = requestCount() + 1;
-        ui(() -> hostView.findViewById(button).performClick());
+        click(button);
         awaitRequests(expected);
         awaitStatus("Brak potwierdzenia · " + command);
         require(requestCount() == expected, "Failed request retried");
@@ -230,7 +242,8 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
         while (android.os.SystemClock.elapsedRealtime() < limit) {
             final boolean[] done = {false};
             ui(() -> done[0] = ((TextView) hostView.findViewById(R.id.status)).getText().toString().startsWith(prefix)
-                    && hostView.findViewById(R.id.power).isEnabled());
+                    && hostView.findViewById(R.id.power).isEnabled()
+                    && WidgetSettings.generation(target, widgetId) > actionGeneration);
             if (done[0]) return;
             Thread.sleep(40);
         }
@@ -250,4 +263,67 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
     private String requestAt(int index) { synchronized (requests) { return requests.get(index); } }
     private static void require(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
     private static final class ActivityResult { static final int OK = -1; static final int FAIL = 0; }
+
+    private View key(int id) {
+        return hostView.findViewById(android.os.Build.VERSION.SDK_INT >= 36 && id == R.id.volume_up ? R.id.volume_up_slot
+                : android.os.Build.VERSION.SDK_INT >= 36 && id == R.id.volume_down ? R.id.volume_down_slot : id);
+    }
+    private void click(int id) throws Exception {
+        actionGeneration = WidgetSettings.generation(target, widgetId);
+        if (android.os.Build.VERSION.SDK_INT >= 36 && (id == R.id.volume_up || id == R.id.volume_down)) {
+            touch(id, android.view.MotionEvent.ACTION_DOWN);
+            Thread.sleep(60);
+            touch(id, android.view.MotionEvent.ACTION_UP);
+        } else ui(() -> require(key(id).performClick(), "Button not clickable"));
+    }
+    private void touch(int id, int action) {
+        int[] point = new int[2];
+        ui(() -> { View key = key(id); key.getLocationOnScreen(point); point[0] += key.getWidth()/2; point[1] += key.getHeight()/2; });
+        if (action == android.view.MotionEvent.ACTION_DOWN) {
+            actionGeneration = WidgetSettings.generation(target, widgetId);
+            touchDown = android.os.SystemClock.uptimeMillis();
+        }
+        android.view.MotionEvent event = android.view.MotionEvent.obtain(touchDown, android.os.SystemClock.uptimeMillis(), action, point[0], point[1], 0);
+        event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+        require(getUiAutomation().injectInputEvent(event, true), "Could not inject touch"); event.recycle();
+    }
+    private void checkHolds() throws Exception {
+        for (int key : new int[]{R.id.volume_down, R.id.volume_up}) {
+            int before = requestCount();
+            touch(key, android.view.MotionEvent.ACTION_DOWN);
+            awaitRequests(before + 1);
+            Thread.sleep(220);
+            require(requestCount() == before + 1, "Repeat began before hold threshold");
+            Thread.sleep(800);
+            require(requestAt(before + 1).equals("POST /volume/start session=123"), "Hold did not start");
+            require(requestAt(before + 2).equals("POST /volume/keepalive session=123"), "No keepalive");
+            ui(() -> hostView.findViewById(R.id.power).performClick());
+            Thread.sleep(80);
+            require(!requestAt(requestCount() - 1).startsWith("POST /command"), "Source command overlapped a hold");
+            touch(key, android.view.MotionEvent.ACTION_UP);
+            awaitStatus("ESP32 przyjęło " + (key == R.id.volume_up ? "VOL+" : "VOL-"));
+            require(requestAt(requestCount() - 1).equals("POST /volume/stop session=123"), "Release did not stop");
+            int stopped = requestCount(); Thread.sleep(600);
+            require(requestCount() == stopped, "Keepalive continued after release");
+        }
+        // Release reaches the service while the press acknowledgement is still in flight.
+        delayMs = 250;
+        int before = requestCount(); click(R.id.volume_up);
+        awaitStatus("ESP32 przyjęło VOL+"); delayMs = 0;
+        require(requestCount() == before + 2 && requestAt(before + 1).contains("/volume/stop"), "Delayed press started after release");
+
+        before = requestCount(); touch(R.id.volume_down, android.view.MotionEvent.ACTION_DOWN);
+        awaitRequests(before + 1); touch(R.id.volume_down, android.view.MotionEvent.ACTION_CANCEL);
+        awaitStatus("ESP32 przyjęło VOL-");
+        require(requestCount() == before + 2 && requestAt(before + 1).contains("/volume/stop"), "Cancel did not stop");
+
+        touch(R.id.volume_up, android.view.MotionEvent.ACTION_DOWN);
+        Thread.sleep(3300); awaitStatus("ESP32 przyjęło VOL+");
+        require(requestAt(requestCount() - 1).contains("/volume/stop"), "Three-second cap did not stop");
+        int capped = requestCount(); touch(R.id.volume_up, android.view.MotionEvent.ACTION_UP); Thread.sleep(600);
+        require(requestCount() == capped, "Cap restarted a held key");
+
+        responseBody = "{\"ok\":true,\"session\":\"18446744073709551616\"}";
+        clickAndExpectFailure(R.id.volume_up, "VOL+"); responseBody = "{\"ok\":true}";
+    }
 }

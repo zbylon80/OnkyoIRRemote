@@ -13,8 +13,12 @@
         android:background="@drawable/power_background" android:text="@string/power" android:textSize="18sp" android:letterSpacing="0.1" />
     <TextView style="@style/WidgetLabel" android:text="@string/volume" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
-        <Button android:id="@+id/volume_down" style="@style/WidgetKey" android:text="@string/volume_down" android:textSize="28sp" android:contentDescription="@string/volume_down_description" />
-        <Button android:id="@+id/volume_up" style="@style/WidgetKey" android:text="@string/volume_up" android:textSize="28sp" android:contentDescription="@string/volume_up_description" />
+        <FrameLayout android:id="@+id/volume_down_slot" style="@style/WidgetKey" android:contentDescription="@string/volume_down_description">
+            <Button android:id="@+id/volume_down" style="@style/WidgetKey" android:layout_width="match_parent" android:layout_margin="0dp" android:text="@string/volume_down" android:textSize="28sp" android:contentDescription="@string/volume_down_description" />
+        </FrameLayout>
+        <FrameLayout android:id="@+id/volume_up_slot" style="@style/WidgetKey" android:contentDescription="@string/volume_up_description">
+            <Button android:id="@+id/volume_up" style="@style/WidgetKey" android:layout_width="match_parent" android:layout_margin="0dp" android:text="@string/volume_up" android:textSize="28sp" android:contentDescription="@string/volume_up_description" />
+        </FrameLayout>
     </LinearLayout>
     <Button android:id="@+id/mute" style="@style/WidgetKey" android:layout_width="match_parent" android:layout_height="0dp" android:text="@string/mute" />
     <TextView style="@style/WidgetLabel" android:text="@string/source" />

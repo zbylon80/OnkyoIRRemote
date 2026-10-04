@@ -21,3 +21,7 @@ dependencyResolutionManagement {
 }
 rootProject.name = 'OnkyoWidget'
 include ':app'
+if (providers.gradleProperty('touchProbe').isPresent()) {
+    include ':touch-probe'
+    project(':touch-probe').projectDir = file('probes/remote-touch')
+}

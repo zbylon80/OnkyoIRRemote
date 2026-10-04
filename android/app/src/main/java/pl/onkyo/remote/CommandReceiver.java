@@ -8,15 +8,11 @@ import android.content.Intent;
 import org.json.JSONObject;
 import java.text.DateFormat;
 import java.util.Date;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 public final class CommandReceiver extends BroadcastReceiver {
     static final String ACTION_COMMAND = "pl.onkyo.remote.COMMAND";
     static final String EXTRA_COMMAND = "command";
     static final String EXTRA_GENERATION = "generation";
-    // Discard concurrent taps instead of queuing IR commands during a slow connection.
-    private static final Set<String> BUSY = ConcurrentHashMap.newKeySet();
 
     @Override public void onReceive(Context context, Intent intent) {
         if (!ACTION_COMMAND.equals(intent.getAction())) return;
@@ -30,7 +26,7 @@ public final class CommandReceiver extends BroadcastReceiver {
         // Each rendered view carries a revision: discard taps sent from an older view.
         if (intent.getLongExtra(EXTRA_GENERATION, -1) != WidgetSettings.generation(context, id)) return;
         String endpoint = WidgetSettings.endpoint(context, id);
-        if (endpoint.isEmpty() || !BUSY.add(endpoint)) return;
+        if (endpoint.isEmpty() || !DeviceGate.acquire(endpoint)) return;
         PendingResult pending = goAsync();
         new Thread(() -> {
             try {
@@ -47,7 +43,7 @@ public final class CommandReceiver extends BroadcastReceiver {
                 }
                 OnkyoWidgetProvider.updateDevice(context, endpoint, status, false);
             } finally {
-                BUSY.remove(endpoint);
+                DeviceGate.release(endpoint);
                 pending.finish();
             }
         }, "onkyo-command").start();

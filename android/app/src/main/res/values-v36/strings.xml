@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:locale="pl">
+    <string name="tap_note">Głośność: dotknij dla jednego kroku albo przytrzymaj, by zmieniać ją płynnie. Puść, aby zatrzymać. Jedno przytrzymanie trwa maksymalnie 3 sekundy.</string>
+    <string name="volume_down_description">Ciszej — dotknij lub przytrzymaj</string>
+    <string name="volume_up_description">Głośniej — dotknij lub przytrzymaj</string>
+</resources>

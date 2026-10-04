@@ -1,4 +1,4 @@
-param([switch]$WithTests, [switch]$Offline)
+param([switch]$WithTests, [switch]$WithTouchProbe, [switch]$Offline)
 $ErrorActionPreference = 'Stop'
 $androidRoot = $PSScriptRoot
 if (-not $env:JAVA_HOME) {
@@ -14,8 +14,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $androidRoot 'local.properties'))) {
 }
 Push-Location $androidRoot
 try {
-    $tasks = @('--console=plain', 'assembleDebug', 'lintDebug')
-    if ($WithTests) { $tasks += 'assembleDebugAndroidTest' }
+    $tasks = @('--console=plain', ':app:assembleDebug', ':app:lintDebug')
+    if ($WithTests) { $tasks += ':app:assembleDebugAndroidTest' }
+    if ($WithTouchProbe) { $tasks += @('-PtouchProbe', ':touch-probe:assembleDebug', ':touch-probe:assembleDebugAndroidTest') }
     if ($Offline) { $tasks += '--offline' }
     & .\gradlew.bat @tasks
     if ($LASTEXITCODE -ne 0) { throw "Android build failed: $LASTEXITCODE" }
