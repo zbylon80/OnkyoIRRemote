@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:locale="pl">
+    <string name="app_name">Pilot Onkyo</string>
+    <string name="widget_description">Pilot Basic: zasilanie, głośność, wyciszenie, wejścia i stacje tunera.</string>
+    <string name="brand">ONKYO</string>
+    <string name="settings">Ustawienia widżetu</string>
+    <string name="settings_icon">⚙</string>
+    <string name="power">POWER</string>
+    <string name="volume">VOLUME</string>
+    <string name="volume_down">−</string>
+    <string name="volume_up">+</string>
+    <string name="volume_down_description">Ciszej o jeden krok</string>
+    <string name="volume_up_description">Głośniej o jeden krok</string>
+    <string name="mute">MUTE</string>
+    <string name="source">SOURCE</string>
+    <string name="tape">TAPE-1</string>
+    <string name="cd">CD</string>
+    <string name="phono">PHONO</string>
+    <string name="tuner">TUNER</string>
+    <string name="video">VIDEO-1</string>
+    <string name="previous">◀</string>
+    <string name="next">▶</string>
+    <string name="previous_description">Poprzednia stacja</string>
+    <string name="next_description">Następna stacja</string>
+    <string name="ready">Gotowy · kliknij przycisk</string>
+    <string name="sending">Wysyłanie: %1$s…</string>
+    <string name="sent">ESP32 przyjęło %1$s · %2$s</string>
+    <string name="failed">Brak potwierdzenia · %1$s</string>
+    <string name="not_configured">Ustaw adres ESP32</string>
+    <string name="config_title">Pilot Onkyo · Basic</string>
+    <string name="config_intro">Przyciski pilota na ekranie głównym. Telefon i ESP32 muszą być w tej samej sieci Wi-Fi.</string>
+    <string name="address_label">Adres ESP32</string>
+    <string name="address_hint">http://192.168.1.46</string>
+    <string name="check">Sprawdź połączenie</string>
+    <string name="checking">Sprawdzanie połączenia…</string>
+    <string name="connection_ok">Połączenie działa · firmware %1$s</string>
+    <string name="connection_failed">Nie udało się połączyć. Sprawdź adres i sieć Wi-Fi.</string>
+    <string name="invalid_address">Podaj adres IP lub nazwę urządzenia, np. http://192.168.1.46. Bez ścieżki, loginu ani hasła.</string>
+    <string name="save_widget">Zapisz widżet</string>
+    <string name="save_default">Zapisz adres</string>
+    <string name="saved">Adres zapisany</string>
+    <string name="add_widget">Dodaj widżet do ekranu głównego</string>
+    <string name="manual_add">Przytrzymaj puste miejsce na ekranie głównym, wybierz Widżety → Pilot Onkyo.</string>
+    <string name="tap_note">Głośność: jedno kliknięcie = jeden krok. Przytrzymanie służy do przesuwania lub zmiany rozmiaru widżetu.</string>
+    <string name="confirmation_note">Potwierdzenie oznacza przyjęcie komendy przez ESP32. Pilot IR nie odczytuje stanu ani poziomu głośności amplitunera.</string>
+</resources>

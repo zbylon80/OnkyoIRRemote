@@ -6,3 +6,11 @@ firmware/OnkyoRemote/WiFiConfig.h
 *.bin
 *.elf
 *.map
+
+# Android local configuration, caches and install packages
+/android/local.properties
+/android/.gradle/
+/android/.tools/
+/android/**/build/
+*.apk
+*.aab

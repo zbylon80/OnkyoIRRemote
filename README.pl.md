@@ -142,6 +142,13 @@ Skieruj nadajnik IR w stronę czujnika amplitunera. W Basic przyciski `◀` i `�
 
 ## 7. Instalacja jako aplikacja
 
+### Natywny widżet Android
+
+Projekt [android/](android/README.md) zawiera aplikację z widżetem ekranu głównego
+odtwarzającym przyciski Basic. Pozwala sterować ESP32 bez otwierania panelu WWW.
+Głośność zmienia się o jeden krok na kliknięcie; widżet nie uruchamia powtarzania.
+Instrukcja budowy APK i instalacji znajduje się w dokumentacji Androida powyżej.
+
 ### Android / Chrome
 
 1. Otwórz panel w Chrome.

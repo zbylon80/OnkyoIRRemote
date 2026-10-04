@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/config_root" android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="24dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/config_title" android:textSize="26sp" android:textStyle="bold" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="@string/config_intro" android:textSize="16sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="@string/address_label" android:labelFor="@id/address" />
+        <EditText android:id="@+id/address" android:layout_width="match_parent" android:layout_height="56dp"
+            android:inputType="textUri" android:singleLine="true" android:autofillHints="" android:importantForAutofill="no" />
+        <Button android:id="@+id/check" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:layout_marginTop="12dp" android:text="@string/check" />
+        <TextView android:id="@+id/check_result" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:accessibilityLiveRegion="polite" />
+        <Button android:id="@+id/save" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:layout_marginTop="16dp" android:text="@string/save_widget" />
+        <Button android:id="@+id/add_widget" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/add_widget" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="@string/tap_note" android:textColor="#C8C1B6" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="@string/confirmation_note" android:textColor="#C8C1B6" />
+    </LinearLayout>
+</ScrollView>

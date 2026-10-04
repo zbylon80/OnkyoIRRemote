@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="8dp"
+    android:background="@drawable/widget_background">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:gravity="center_vertical">
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:text="@string/brand" android:textSize="24sp" android:textStyle="bold" android:fontFamily="serif" android:textColor="#EEEAE2" android:paddingStart="4dp" android:paddingEnd="4dp" />
+        <Button android:id="@+id/settings" style="@style/WidgetKey" android:layout_width="48dp" android:layout_weight="0"
+            android:layout_margin="0dp" android:text="@string/settings_icon" android:textSize="24sp" android:contentDescription="@string/settings" />
+    </LinearLayout>
+    <Button android:id="@+id/power" style="@style/WidgetKey" android:layout_width="match_parent" android:layout_height="0dp"
+        android:background="@drawable/power_background" android:text="@string/power" android:textSize="18sp" android:letterSpacing="0.1" />
+    <TextView style="@style/WidgetLabel" android:text="@string/volume" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <Button android:id="@+id/volume_down" style="@style/WidgetKey" android:text="@string/volume_down" android:textSize="28sp" android:contentDescription="@string/volume_down_description" />
+        <Button android:id="@+id/volume_up" style="@style/WidgetKey" android:text="@string/volume_up" android:textSize="28sp" android:contentDescription="@string/volume_up_description" />
+    </LinearLayout>
+    <Button android:id="@+id/mute" style="@style/WidgetKey" android:layout_width="match_parent" android:layout_height="0dp" android:text="@string/mute" />
+    <TextView style="@style/WidgetLabel" android:text="@string/source" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <Button android:id="@+id/tape" style="@style/WidgetKey" android:text="@string/tape" />
+        <Button android:id="@+id/cd" style="@style/WidgetKey" android:text="@string/cd" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <Button android:id="@+id/phono" style="@style/WidgetKey" android:text="@string/phono" />
+        <Button android:id="@+id/tuner" style="@style/WidgetKey" android:text="@string/tuner" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <Button android:id="@+id/video" style="@style/WidgetKey" android:layout_weight="2" android:text="@string/video" />
+        <Button android:id="@+id/previous" style="@style/WidgetKey" android:text="@string/previous" android:contentDescription="@string/previous_description" />
+        <Button android:id="@+id/next" style="@style/WidgetKey" android:text="@string/next" android:contentDescription="@string/next_description" />
+    </LinearLayout>
+    <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="30dp"
+        android:gravity="center_vertical" android:text="@string/ready" android:textColor="#BBB5AA" android:textSize="11sp"
+        android:paddingStart="4dp" android:paddingEnd="4dp" android:maxLines="1" android:ellipsize="end" />
+</LinearLayout>

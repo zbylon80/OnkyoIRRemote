@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:configure="pl.onkyo.remote.ConfigureActivity"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/widget_basic"
+    android:previewLayout="@layout/widget_basic"
+    android:minWidth="250dp"
+    android:minHeight="500dp"
+    android:minResizeWidth="250dp"
+    android:minResizeHeight="500dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="5"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable" />

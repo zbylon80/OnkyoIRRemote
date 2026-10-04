@@ -146,6 +146,13 @@ Point the IR transmitter toward the receiver on the amplifier. In Basic, the `â—
 
 ## 7. Install as an app
 
+### Native Android widget
+
+The [android/](android/README.md) project provides a home-screen widget with
+the Basic panel buttons, controlling ESP32 without opening the web panel.
+Each volume tap sends one command; the widget does not start hold/repeat.
+APK build and installation instructions are in the Android documentation.
+
 ### Android / Chrome
 
 1. Open the panel in Chrome.
