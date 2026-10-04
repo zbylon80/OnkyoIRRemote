@@ -146,7 +146,10 @@ Skieruj nadajnik IR w stronę czujnika amplitunera. W Basic przyciski `◀` i `�
 
 Projekt [android/](android/README.md) zawiera aplikację z widżetem ekranu głównego
 odtwarzającym przyciski Basic. Pozwala sterować ESP32 bez otwierania panelu WWW.
-Głośność zmienia się o jeden krok na kliknięcie; widżet nie uruchamia powtarzania.
+Głośność zmienia się o jeden krok na kliknięcie. Na Androidzie 16 (API 36) lub
+nowszym przytrzymanie VOL−/VOL+ uruchamia powtarzanie do puszczenia, z limitem
+3 sekund. Android 8–15 obsługuje pojedyncze kliknięcia. Widżet korzysta
+z istniejącego protokołu firmware 1.1.0; aktualizacja firmware nie jest potrzebna.
 Instrukcja budowy APK i instalacji znajduje się w dokumentacji Androida powyżej.
 
 ### Android / Chrome

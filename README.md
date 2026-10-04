@@ -150,7 +150,10 @@ Point the IR transmitter toward the receiver on the amplifier. In Basic, the `�
 
 The [android/](android/README.md) project provides a home-screen widget with
 the Basic panel buttons, controlling ESP32 without opening the web panel.
-Each volume tap sends one command; the widget does not start hold/repeat.
+Each volume tap changes the volume by one step. On Android 16 (API 36) or
+newer, holding VOL−/VOL+ repeats until release, with a 3-second limit.
+Android 8–15 supports single taps. The widget uses the existing firmware 1.1.0
+protocol; no firmware update is needed.
 APK build and installation instructions are in the Android documentation.
 
 ### Android / Chrome
