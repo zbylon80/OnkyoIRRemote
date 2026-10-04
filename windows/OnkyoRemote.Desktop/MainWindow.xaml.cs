@@ -14,16 +14,21 @@ public partial class MainWindow : Window
     private readonly WidgetSettings settings;
     private readonly RemoteApi? ownedApi;
     public RemoteController Controller { get; }
+    public MediaKeyActions MediaKeys { get; }
+    private readonly bool enableMediaKeys;
+    private MediaKeyHook? mediaHook;
     private bool closing, allowClose;
 
-    public MainWindow() : this(null, null) { }
+    public MainWindow() : this(null, null, true) { }
 
-    public MainWindow(IRemoteApi? api, SettingsStore? settingsStore)
+    public MainWindow(IRemoteApi? api, SettingsStore? settingsStore, bool enableMediaKeys = false)
     {
         InitializeComponent();
         store = settingsStore ?? new();
         settings = store.Load();
         Controller = new RemoteController(api ?? (ownedApi = new RemoteApi()), settings.Endpoint);
+        MediaKeys = new MediaKeyActions(Controller);
+        this.enableMediaKeys = enableMediaKeys;
         Width = settings.Width; Height = settings.Height;
         if (settings.Left is double left && settings.Top is double top && double.IsFinite(left) && double.IsFinite(top))
         {
@@ -49,6 +54,23 @@ public partial class MainWindow : Window
             StatusText.Foreground = new SolidColorBrush(success ? Color.FromRgb(187, 181, 170) : Color.FromRgb(232, 157, 142));
             SettingsStatus.Text = text;
         });
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        if (!enableMediaKeys) return;
+        try
+        {
+            mediaHook = new MediaKeyHook(signal => { _ = Dispatcher.BeginInvoke(() => MediaKeys.Handle(signal)); });
+            InputModeText.Text = "Klawiatura → Onkyo · maks. 3 s";
+            InputModeText.ToolTip = "VOL−/VOL+ i MUTE sterują Onkyo. PLAY/PAUSE = POWER. Zamknij widżet, aby przywrócić funkcje Windows.";
+        }
+        catch (Exception e2) when (e2 is InvalidOperationException or TimeoutException)
+        {
+            InputModeText.Text = "Klawisze multimedialne niedostępne";
+            InputModeText.ToolTip = "Przyciski na widżecie nadal działają. Uruchom ponownie aplikację, aby ponowić przejęcie klawiszy.";
+        }
     }
 
     private void SetBusy(bool busy)
@@ -152,8 +174,8 @@ public partial class MainWindow : Window
 
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
-    private void Window_Deactivated(object? sender, EventArgs e) => ReleaseVolume();
-    private void Window_StateChanged(object? sender, EventArgs e) { if (WindowState != WindowState.Normal) ReleaseVolume(); }
+    private void Window_Deactivated(object? sender, EventArgs e) => ReleaseLocalVolume();
+    private void Window_StateChanged(object? sender, EventArgs e) { if (WindowState != WindowState.Normal) ReleaseLocalVolume(); }
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
@@ -162,8 +184,10 @@ public partial class MainWindow : Window
 
     public void ReleaseVolume()
     {
-        VolumeDown.Release(); VolumeUp.Release(); Controller.ReleaseVolume();
+        ReleaseLocalVolume(); MediaKeys.CancelVolume(); Controller.ReleaseVolume();
     }
+
+    private void ReleaseLocalVolume() { VolumeDown.Release(); VolumeUp.Release(); }
 
     private async void Window_Closing(object? sender, CancelEventArgs e)
     {
@@ -171,6 +195,8 @@ public partial class MainWindow : Window
         e.Cancel = true;
         if (closing) return;
         closing = true;
+        mediaHook?.Dispose();
+        MediaKeys.Dispose();
         ReleaseVolume();
         IsEnabled = false;
         await Controller.Completion;

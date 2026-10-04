@@ -157,6 +157,9 @@ Instrukcja budowy APK i instalacji znajduje się w dokumentacji Androida powyże
 Projekt [windows/](windows/README.md) zawiera natywny pilot w małym oknie
 na pulpicie Windows, z panelem Basic i przytrzymaniem VOL−/VOL+ (limit 3 sekund).
 Można przesuwać okno, zmieniać rozmiar i przypiąć je nad innymi oknami.
+Podczas działania aplikacji klawisze multimedialne VOL−/VOL+ i MUTE sterują
+Onkyo, a PLAY/PAUSE wysyła POWER, także przy zminimalizowanym oknie.
+Zamknięcie aplikacji przywraca standardowe funkcje klawiszy Windows.
 Korzysta z firmware 1.1.0 bez aktualizacji ESP32. Instrukcja uruchomienia
 wersji przenośnej i testów znajduje się w dokumentacji Windows powyżej.
 

@@ -161,6 +161,9 @@ APK build and installation instructions are in the Android documentation.
 The [windows/](windows/README.md) project provides a native desktop remote
 with the Basic panel and press-and-hold VOL−/VOL+ (3-second limit).
 The small window can be moved, resized, and pinned above other windows.
+While the app is running, the VOL−/VOL+ and MUTE media keys control Onkyo,
+and PLAY/PAUSE sends POWER, including while minimized. Closing the app
+restores the standard Windows key functions.
 It uses firmware 1.1.0 without an ESP32 update. Portable app and test
 instructions are in the Windows documentation.
 

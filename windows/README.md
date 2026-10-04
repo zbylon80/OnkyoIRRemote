@@ -1,12 +1,12 @@
 # Widżet Onkyo na Windows
 
-Natywna aplikacja 0.1.1 z małym oknem na pulpicie. Odtwarza panel Basic:
+Natywna aplikacja 0.2.0 z małym oknem na pulpicie. Odtwarza panel Basic:
 POWER, VOL−/VOL+, MUTE, TAPE-1, CD, PHONO, TUNER, VIDEO-1 oraz poprzednia
 i następna stacja. Nie zawiera panelu Advanced.
 
 ## Uruchomienie
 
-1. Rozpakuj `OnkyoRemote-Windows-0.1.1-x64.zip` do wybranego folderu.
+1. Rozpakuj `OnkyoRemote-Windows-0.2.0-x64.zip` do wybranego folderu.
 2. Uruchom `OnkyoRemote.Windows.exe`. Wersja przenośna zawiera .NET i nie
    wymaga instalacji środowiska ani uprawnień administratora. Jest przeznaczona
    dla Windows 10/11 x64. EXE nie jest podpisany certyfikatem wydawcy.
@@ -22,6 +22,37 @@ przypięcia, rozmiaru i pozycji są zapisywane w
 `%LOCALAPPDATA%\OnkyoRemote\widget.json`. Pilot nie uruchamia się automatycznie
 z Windows. Kolejne otwarcie EXE nie tworzy drugiej instancji.
 
+## Klawisze multimedialne klawiatury
+
+Gdy aplikacja działa, przejmuje cztery standardowe klawisze Windows:
+
+| Klawisz fizyczny | Polecenie Onkyo |
+| --- | --- |
+| VOL− | ściszanie, również z przytrzymaniem |
+| VOL+ | podgłaśnianie, również z przytrzymaniem |
+| MUTE | wyciszenie |
+| PLAY/PAUSE | POWER — włączenie/wyłączenie wzmacniacza |
+
+Sterowanie działa również po minimalizacji oraz podczas pracy w innych
+oknach. Te cztery klawisze nie zmieniają wtedy głośności PC ani odtwarzania
+multimediów. STOP, poprzedni i następny utwór zachowują standardowe funkcje.
+POWER i MUTE są wysyłane raz na naciśnięcie, także przy przytrzymaniu klawisza.
+
+Zamknięcie aplikacji przez × lub Alt+F4 usuwa przechwytywanie i przywraca
+standardowe działanie Windows. Minimalizacja nadal pozostawia sterowanie
+Onkyo aktywne. Aplikacja nie dodaje ikony przy zegarze. Jeśli klawisz był
+już trzymany podczas otwierania pilota, jego dotychczasowa funkcja pozostaje
+aktywna do puszczenia. Błąd sieci nie przełącza samoczynnie klawiszy z powrotem
+na PC — decyduje o tym zamknięcie widżetu.
+
+Obsługuje standardowe `VK_VOLUME_*` i `VK_MEDIA_PLAY_PAUSE`. Klawiatura lub
+oprogramowanie producenta wysyłające wyłącznie własne komendy HID może
+wymagać osobnego dopasowania. Przy uruchomieniu napis na dole potwierdza
+przejęcie klawiszy albo pokazuje jego niepowodzenie. Obsługa używa publicznego
+[WH_KEYBOARD_LL](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc)
+na osobnym wątku; callback filtruje tylko te cztery klawisze i kolejkuje ich
+obsługę, bez HTTP, logowania czy zapisywania zwykłych naciśnięć.
+
 ## Głośność i potwierdzenia
 
 - Kliknięcie VOL−/VOL+ daje jeden krok. Przytrzymanie lewego przycisku myszy
@@ -30,8 +61,10 @@ z Windows. Kolejne otwarcie EXE nie tworzy drugiej instancji.
 - Tab wybiera przycisk. Na przyciskach głośności można przytrzymać spację lub
   Enter; powtarzanie klawiatury nie tworzy kolejnych sesji. Wywołanie przycisku
   przez narzędzie dostępności daje jeden krok.
-- Utrata przechwytywania myszy, aktywności okna lub fokusu klawiatury,
-  klawisz Esc, minimalizacja i zamknięcie kończą przytrzymanie. Zamknięcie
+- Utrata przechwytywania myszy, aktywności okna lub fokusu klawiatury oraz
+  minimalizacja kończą lokalne przytrzymanie przycisku widżetu. Globalne
+  klawisze głośności działają do puszczenia lub limitu, także w tle.
+  Esc w aktywnym oknie i zamknięcie kończą każde przytrzymanie. Zamknięcie
   czeka na zakończenie bieżącego żądania i wysłanie znanego `/volume/stop`.
 - Każde przytrzymanie ma limit 3 sekund. Można puścić i nacisnąć ponownie.
   Przy zabiciu procesu lub utracie sieci pozostaje watchdog ESP32: maksymalnie
@@ -70,7 +103,11 @@ z fizycznym ESP32 i nie wysyłają IR. Sprawdzają protokół HTTP, błędy i ti
 przytrzymanie, puszczenie przed odpowiedzią, limit 3 sekund, blokowanie
 nakładających się poleceń oraz okno WPF i zapis ustawień. Testowe okno jest
 tworzone na czas sprawdzenia, a potem zamykane; ustawienia testowe są osobne.
-Raport i obrazy okna trafiają do `artifacts/tests/`.
+Runner sprawdza też mapowanie czterech klawiszy, przepuszczanie pozostałych,
+brak wielokrotnego POWER przy trzymaniu, głośność przy zminimalizowanym oknie,
+odrzucanie starych zdarzeń, własność sesji i zwolnienie natywnego hooka.
+Nie wstrzykuje globalnych naciśnięć do Windows. Fizyczna klawiatura wymaga
+sprawdzenia po uruchomieniu. Raport i obrazy okna trafiają do `artifacts/tests/`.
 
 Ikona EXE i okna pochodzi z istniejącego `PWA_ICON` w firmware. Plik źródłowy
 to `OnkyoRemote.Desktop/Assets/remote.svg`; wielorozmiarowy `remote.ico`

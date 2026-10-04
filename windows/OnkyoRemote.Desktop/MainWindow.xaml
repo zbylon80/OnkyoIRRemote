@@ -105,7 +105,7 @@
    </Border>
    <StackPanel Grid.Row="2" VerticalAlignment="Bottom" Margin="4,0,4,3">
     <TextBlock x:Name="StatusText" Text="Gotowy" Foreground="#BBB5AA" FontSize="11" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
-    <TextBlock Text="Kliknij lub przytrzymaj głośność · maks. 3 s" Foreground="#89847B" FontSize="10" Margin="0,7,0,0" />
+    <TextBlock x:Name="InputModeText" Text="Kliknij lub przytrzymaj głośność · maks. 3 s" Foreground="#89847B" FontSize="10" Margin="0,7,0,0" />
    </StackPanel>
   </Grid>
  </Border>
