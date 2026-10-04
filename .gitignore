@@ -14,3 +14,13 @@ firmware/OnkyoRemote/WiFiConfig.h
 /android/**/build/
 *.apk
 *.aab
+
+# Windows application build output and local tooling
+/windows/**/bin/
+/windows/**/obj/
+/windows/artifacts/
+/windows/.tools/
+
+# Local conversation attachments and temporary manual/reference extracts
+/.codex-remote-attachments/
+/tmp/

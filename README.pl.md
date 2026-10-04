@@ -152,6 +152,14 @@ nowszym przytrzymanie VOL−/VOL+ uruchamia powtarzanie do puszczenia, z limitem
 z istniejącego protokołu firmware 1.1.0; aktualizacja firmware nie jest potrzebna.
 Instrukcja budowy APK i instalacji znajduje się w dokumentacji Androida powyżej.
 
+### Widżet na Windows PC
+
+Projekt [windows/](windows/README.md) zawiera natywny pilot w małym oknie
+na pulpicie Windows, z panelem Basic i przytrzymaniem VOL−/VOL+ (limit 3 sekund).
+Można przesuwać okno, zmieniać rozmiar i przypiąć je nad innymi oknami.
+Korzysta z firmware 1.1.0 bez aktualizacji ESP32. Instrukcja uruchomienia
+wersji przenośnej i testów znajduje się w dokumentacji Windows powyżej.
+
 ### Android / Chrome
 
 1. Otwórz panel w Chrome.

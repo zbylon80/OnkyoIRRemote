@@ -1,0 +1,112 @@
+<Window x:Class="OnkyoRemote.Desktop.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:OnkyoRemote.Desktop"
+ xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+ Title="Pilot Onkyo" Icon="Assets/remote.ico" Width="300" Height="550" MinWidth="280" MinHeight="520"
+ WindowStyle="None" ResizeMode="CanResize" Background="#161616"
+ Foreground="#EEEAE2" FontFamily="Segoe UI" WindowStartupLocation="CenterScreen"
+ Deactivated="Window_Deactivated" StateChanged="Window_StateChanged" Closing="Window_Closing" PreviewKeyDown="Window_KeyDown">
+ <shell:WindowChrome.WindowChrome>
+  <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="6" CornerRadius="14" GlassFrameThickness="0" />
+ </shell:WindowChrome.WindowChrome>
+ <Window.Resources>
+  <LinearGradientBrush x:Key="KeyFill" StartPoint="0,0" EndPoint="1,1">
+   <GradientStop Color="#3B3B3B" Offset="0" /><GradientStop Color="#1D1D1D" Offset="1" />
+  </LinearGradientBrush>
+  <Style x:Key="KeyStyle" TargetType="Button">
+   <Setter Property="Background" Value="{StaticResource KeyFill}" />
+   <Setter Property="Foreground" Value="#EEEAE2" /><Setter Property="BorderBrush" Value="#666666" />
+   <Setter Property="BorderThickness" Value="1" /><Setter Property="FontWeight" Value="SemiBold" />
+   <Setter Property="FontSize" Value="14" /><Setter Property="Cursor" Value="Hand" />
+   <Setter Property="Margin" Value="3" /><Setter Property="Padding" Value="8,4" />
+   <Setter Property="Template">
+    <Setter.Value><ControlTemplate TargetType="Button">
+     <Border x:Name="Face" CornerRadius="6" Background="{TemplateBinding Background}"
+      BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+      <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" />
+     </Border>
+     <ControlTemplate.Triggers>
+      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#D1C8BA" /></Trigger>
+      <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#E9D7AB" /><Setter TargetName="Face" Property="BorderThickness" Value="2" /></Trigger>
+      <Trigger Property="IsPressed" Value="True"><Setter TargetName="Face" Property="Background" Value="#101010" /></Trigger>
+     </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value>
+   </Setter>
+  </Style>
+  <Style x:Key="VolumeStyle" TargetType="local:VolumeButton" BasedOn="{StaticResource KeyStyle}">
+   <Setter Property="FontSize" Value="30" />
+   <Style.Triggers><Trigger Property="IsHolding" Value="True"><Setter Property="Background" Value="#101010" /><Setter Property="BorderBrush" Value="#E9D7AB" /></Trigger></Style.Triggers>
+  </Style>
+  <Style x:Key="HeaderKey" TargetType="Button" BasedOn="{StaticResource KeyStyle}">
+   <Setter Property="Width" Value="28" /><Setter Property="Height" Value="28" /><Setter Property="FontSize" Value="13" />
+   <Setter Property="Padding" Value="0" /><Setter Property="BorderBrush" Value="#444444" />
+  </Style>
+  <Style x:Key="Label" TargetType="TextBlock">
+   <Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#BBB5AA" />
+   <Setter Property="Margin" Value="4,10,4,5" />
+  </Style>
+  <Style TargetType="TextBox">
+   <Setter Property="Background" Value="#101010" /><Setter Property="Foreground" Value="#EEEAE2" />
+   <Setter Property="BorderBrush" Value="#666666" /><Setter Property="Padding" Value="9,8" /><Setter Property="FontSize" Value="13" />
+   <Setter Property="CaretBrush" Value="#EEEAE2" />
+  </Style>
+ </Window.Resources>
+ <Border BorderBrush="#515151" BorderThickness="1" CornerRadius="12">
+  <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#121212" Offset="0" /><GradientStop Color="#242424" Offset="0.5" /><GradientStop Color="#141414" Offset="1" /></LinearGradientBrush></Border.Background>
+  <Grid Margin="12">
+   <Grid.RowDefinitions><RowDefinition Height="46" /><RowDefinition /><RowDefinition Height="56" /></Grid.RowDefinitions>
+   <Grid x:Name="Header" Background="Transparent" MouseLeftButtonDown="Header_Drag">
+    <TextBlock Text="ONKYO" FontFamily="Georgia" FontSize="25" FontWeight="Bold" VerticalAlignment="Center" Margin="4,0" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+     <Button x:Name="PinButton" Content="♧" Style="{StaticResource HeaderKey}" Click="Pin_Click" ToolTip="Zawsze na wierzchu" AutomationProperties.Name="Przypnij nad innymi oknami" />
+     <Button x:Name="SettingsButton" Content="⚙" Style="{StaticResource HeaderKey}" Click="Settings_Click" ToolTip="Ustawienia" AutomationProperties.Name="Ustawienia" />
+     <Button Content="−" Style="{StaticResource HeaderKey}" Click="Minimize_Click" ToolTip="Minimalizuj" AutomationProperties.Name="Minimalizuj" />
+     <Button Content="×" Style="{StaticResource HeaderKey}" Click="Close_Click" ToolTip="Zamknij" AutomationProperties.Name="Zamknij" />
+    </StackPanel>
+   </Grid>
+   <Grid x:Name="RemoteKeys" Grid.Row="1">
+    <Grid.RowDefinitions><RowDefinition Height="1*" /><RowDefinition Height="Auto" /><RowDefinition Height="1*" /><RowDefinition Height="1*" /><RowDefinition Height="Auto" /><RowDefinition Height="1*" /><RowDefinition Height="1*" /><RowDefinition Height="1*" /></Grid.RowDefinitions>
+    <Button x:Name="PowerButton" Content="POWER" Tag="POWER" Style="{StaticResource KeyStyle}" Click="Command_Click" FontSize="17">
+     <Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#9F3B35" Offset="0" /><GradientStop Color="#64231F" Offset="1" /></LinearGradientBrush></Button.Background>
+     <Button.BorderBrush><SolidColorBrush Color="#C27067" /></Button.BorderBrush>
+    </Button>
+    <TextBlock Grid.Row="1" Text="VOLUME" Style="{StaticResource Label}" />
+    <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+     <local:VolumeButton x:Name="VolumeDown" Content="−" Tag="down" Style="{StaticResource VolumeStyle}" AutomationProperties.Name="Ciszej — kliknij lub przytrzymaj" ToolTip="Kliknij lub przytrzymaj (maks. 3 s)" />
+     <local:VolumeButton x:Name="VolumeUp" Grid.Column="1" Content="+" Tag="up" Style="{StaticResource VolumeStyle}" AutomationProperties.Name="Głośniej — kliknij lub przytrzymaj" ToolTip="Kliknij lub przytrzymaj (maks. 3 s)" />
+    </Grid>
+    <Button Grid.Row="3" Content="MUTE" Tag="MUTE" Style="{StaticResource KeyStyle}" Click="Command_Click" />
+    <TextBlock Grid.Row="4" Text="SOURCE" Style="{StaticResource Label}" />
+    <Grid Grid.Row="5"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+     <Button Content="TAPE-1" Tag="TAPE-1" Style="{StaticResource KeyStyle}" Click="Command_Click" />
+     <Button Grid.Column="1" Content="CD" Tag="CD" Style="{StaticResource KeyStyle}" Click="Command_Click" />
+    </Grid>
+    <Grid Grid.Row="6"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+     <Button Content="PHONO" Tag="PHONO" Style="{StaticResource KeyStyle}" Click="Command_Click" />
+     <Button Grid.Column="1" Content="TUNER" Tag="TUNER" Style="{StaticResource KeyStyle}" Click="Command_Click" />
+    </Grid>
+    <Grid Grid.Row="7"><Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+     <Button Content="VIDEO-1" Tag="VIDEO-1" Style="{StaticResource KeyStyle}" Click="Command_Click" />
+     <Button Grid.Column="1" Content="◀" Tag="PRESET-" Style="{StaticResource KeyStyle}" Click="Command_Click" AutomationProperties.Name="Poprzednia stacja" />
+     <Button Grid.Column="2" Content="▶" Tag="PRESET+" Style="{StaticResource KeyStyle}" Click="Command_Click" AutomationProperties.Name="Następna stacja" />
+    </Grid>
+   </Grid>
+   <Border x:Name="SettingsPanel" Grid.Row="1" Visibility="Collapsed" Background="#191919" CornerRadius="8" Padding="8,12">
+    <StackPanel>
+     <TextBlock Text="Ustawienia widżetu" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,22" />
+     <TextBlock Text="Adres ESP32" Margin="0,0,0,7" />
+     <TextBox x:Name="EndpointInput" AutomationProperties.Name="Adres ESP32" KeyDown="Endpoint_KeyDown" />
+     <TextBlock Text="Ten sam adres co w pilocie na telefonie." FontSize="11" Foreground="#BBB5AA" TextWrapping="Wrap" Margin="0,8,0,15" />
+     <Button x:Name="CheckButton" Content="Sprawdź połączenie" Style="{StaticResource KeyStyle}" Height="42" Click="Check_Click" />
+     <Button x:Name="SaveButton" Content="Zapisz i wróć" Style="{StaticResource KeyStyle}" Height="42" Click="Save_Click" />
+     <TextBlock x:Name="SettingsStatus" Foreground="#DCCAB0" TextWrapping="Wrap" FontSize="12" Margin="3,12,3,0" />
+    </StackPanel>
+   </Border>
+   <StackPanel Grid.Row="2" VerticalAlignment="Bottom" Margin="4,0,4,3">
+    <TextBlock x:Name="StatusText" Text="Gotowy" Foreground="#BBB5AA" FontSize="11" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Text="Kliknij lub przytrzymaj głośność · maks. 3 s" Foreground="#89847B" FontSize="10" Margin="0,7,0,0" />
+   </StackPanel>
+  </Grid>
+ </Border>
+</Window>

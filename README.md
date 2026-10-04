@@ -156,6 +156,14 @@ Android 8–15 supports single taps. The widget uses the existing firmware 1.1.0
 protocol; no firmware update is needed.
 APK build and installation instructions are in the Android documentation.
 
+### Windows PC widget
+
+The [windows/](windows/README.md) project provides a native desktop remote
+with the Basic panel and press-and-hold VOL−/VOL+ (3-second limit).
+The small window can be moved, resized, and pinned above other windows.
+It uses firmware 1.1.0 without an ESP32 update. Portable app and test
+instructions are in the Windows documentation.
+
 ### Android / Chrome
 
 1. Open the panel in Chrome.

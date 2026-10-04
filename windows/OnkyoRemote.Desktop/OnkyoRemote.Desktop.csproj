@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>OnkyoRemote.Windows</AssemblyName>
+    <Version>0.1.1</Version>
+    <ApplicationIcon>Assets/remote.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../OnkyoRemote.Core/OnkyoRemote.Core.csproj" />
+    <Resource Include="Assets/remote.ico" />
+  </ItemGroup>
+</Project>
