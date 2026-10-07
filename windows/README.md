@@ -1,12 +1,17 @@
 # Widżet Onkyo na Windows
 
-Natywna aplikacja 0.2.0 z małym oknem na pulpicie. Odtwarza panel Basic:
+Natywna aplikacja 0.3.1 z małym oknem na pulpicie. Odtwarza panel Basic:
 POWER, VOL−/VOL+, MUTE, TAPE-1, CD, PHONO, TUNER, VIDEO-1 oraz poprzednia
 i następna stacja. Nie zawiera panelu Advanced.
 
+Ikona zegarka w górnym menu (podpowiedź **Budzik i wyłączenie**) otwiera w przeglądarce
+panel `/schedule` na ESP32 (firmware 1.3.0 lub nowsze). Tam ustawisz niezależnie
+jednorazowe wyłączenie i pobudkę. Harmonogram jest zapisany i wykonywany przez
+ESP32, więc aplikację Windows można zamknąć.
+
 ## Uruchomienie
 
-1. Rozpakuj `OnkyoRemote-Windows-0.2.0-x64.zip` do wybranego folderu.
+1. Rozpakuj `OnkyoRemote-Windows-0.3.1-x64.zip` do wybranego folderu.
 2. Uruchom `OnkyoRemote.Windows.exe`. Wersja przenośna zawiera .NET i nie
    wymaga instalacji środowiska ani uprawnień administratora. Jest przeznaczona
    dla Windows 10/11 x64. EXE nie jest podpisany certyfikatem wydawcy.

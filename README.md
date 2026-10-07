@@ -11,6 +11,44 @@ restart additionally uses NTP time synchronization.
 
 [Polska wersja / Polish version](README.pl.md)
 
+## Manual restart
+
+Diagnostics (`/status`) includes **Restart ESP32**. It acknowledges `POST /restart`
+(`confirm=restart`) before rebooting, stops held controls, retains flash settings
+and emits no IR. OTA and a pending wake source return HTTP 409. Wait about
+15 seconds then refresh diagnostics; NTP synchronizes again after boot.
+
+## One-shot off and wake schedules
+
+Off/wake settings are available at `/schedule`, linked from both remote
+panels and from the clock icon in the Windows/Android widget's top menu.
+The widget shortcut opens the same device panel in your browser.
+Choose a wake time/source and press **Ustaw**, or an off time and its **Ustaw**.
+Each action is independent and runs once: today if the chosen minute has not
+started, otherwise tomorrow. The panel confirms the date/time and offers cancel.
+Defaults are unset, with times 02:00 and 07:00. Wake selects an input after two seconds.
+Settings survive ESP32 restart; the phone/computer need not stay on.
+
+The ESP32 requires NTP synchronization after every boot and follows Warsaw
+time including DST. Internet access is required to synchronize, not to execute
+an already synchronized schedule. Missed minutes are not caught up. An action
+is disabled and saved before sending POWER, so it cannot repeat after a restart
+or on the next day. Pressing Set explicitly schedules another occurrence.
+When local time skips a minute at spring DST change, that action is skipped.
+OTA, learning and held controls also cause a due action to be skipped.
+
+Both actions send the same POWER toggle. Off assumes an already powered-on
+amplifier; wake assumes standby. There is no feedback and volume stays unchanged.
+For waking to music choose a source that will actually be playing, such as TUNER.
+
+`GET /alarms` returns clock/storage status, the last execution result since boot,
+and `off`/`on` settings including their target `date`. `POST /alarms` accepts
+URL-encoded `action=on` with `onTime`/`source`, `action=off` with `offTime`,
+or `action=cancelOn`/`cancelOff`. Times are `HH:MM`. Sources: TUNER, CD, PHONO,
+TAPE-1, TAPE-2, VIDEO-1, VIDEO-2. The two actions cannot share the same date/time.
+Each write affects only the requested action. Saving settings emits no IR. A storage failure stops
+the scheduler; browser errors require refreshing before another save.
+
 ## Firmware versioning
 
 The version has one source: [FirmwareVersion.h](firmware/OnkyoRemote/FirmwareVersion.h).

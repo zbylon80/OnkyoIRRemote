@@ -39,7 +39,7 @@
    <Style.Triggers><Trigger Property="IsHolding" Value="True"><Setter Property="Background" Value="#101010" /><Setter Property="BorderBrush" Value="#E9D7AB" /></Trigger></Style.Triggers>
   </Style>
   <Style x:Key="HeaderKey" TargetType="Button" BasedOn="{StaticResource KeyStyle}">
-   <Setter Property="Width" Value="28" /><Setter Property="Height" Value="28" /><Setter Property="FontSize" Value="13" />
+   <Setter Property="Width" Value="26" /><Setter Property="Height" Value="28" /><Setter Property="FontSize" Value="13" /><Setter Property="Margin" Value="2" />
    <Setter Property="Padding" Value="0" /><Setter Property="BorderBrush" Value="#444444" />
   </Style>
   <Style x:Key="Label" TargetType="TextBlock">
@@ -59,6 +59,9 @@
    <Grid x:Name="Header" Background="Transparent" MouseLeftButtonDown="Header_Drag">
     <TextBlock Text="ONKYO" FontFamily="Georgia" FontSize="25" FontWeight="Bold" VerticalAlignment="Center" Margin="4,0" />
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+     <Button x:Name="ScheduleButton" Style="{StaticResource HeaderKey}" Click="Schedule_Click" ToolTip="Budzik i wyłączenie" AutomationProperties.Name="Budzik i wyłączenie">
+      <Viewbox Width="16" Height="16"><Path Data="M12,3 A9,9 0 1 1 12,21 A9,9 0 1 1 12,3 M12,7 L12,12 L15,14" Stroke="#EEEAE2" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox>
+     </Button>
      <Button x:Name="PinButton" Content="♧" Style="{StaticResource HeaderKey}" Click="Pin_Click" ToolTip="Zawsze na wierzchu" AutomationProperties.Name="Przypnij nad innymi oknami" />
      <Button x:Name="SettingsButton" Content="⚙" Style="{StaticResource HeaderKey}" Click="Settings_Click" ToolTip="Ustawienia" AutomationProperties.Name="Ustawienia" />
      <Button Content="−" Style="{StaticResource HeaderKey}" Click="Minimize_Click" ToolTip="Minimalizuj" AutomationProperties.Name="Minimalizuj" />

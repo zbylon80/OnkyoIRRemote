@@ -1,6 +1,6 @@
 # Widżet Onkyo na Androida
 
-Aplikacja 0.2.0 udostępnia natywny widżet ekranu głównego z przyciskami
+Aplikacja 0.3.1 udostępnia natywny widżet ekranu głównego z przyciskami
 panelu Basic. Wymaga Androida 8.0 lub nowszego. Ustawienia są po polsku,
 oznaczenia klawiszy odpowiadają panelowi WWW.
 
@@ -10,6 +10,11 @@ kliknięciami. Obsługa dotyku korzysta z publicznego `RemoteViews.DrawInstructi
 i bazowego dokumentu Remote Compose API 6 (nagłówek 0.3).
 
 ## Instalacja
+
+Ikona zegarka w górnym menu widżetu (**Budzik i wyłączenie**) otwiera w przeglądarce
+panel `/schedule` na ESP32 (jednorazowy budzik od firmware 1.3.0). Ustawienia
+wyłączenia i pobudki są wspólne z panelem WWW i Windows, zapisane i wykonywane
+przez ESP32. Po zapisie telefon może być wyłączony.
 
 1. Przenieś `app/build/outputs/apk/debug/app-debug.apk` na telefon i otwórz plik.
    Jest to lokalny APK testowy podpisany kluczem debug tego komputera.

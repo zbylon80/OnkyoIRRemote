@@ -80,6 +80,7 @@ public partial class MainWindow : Window
         foreach (var button in Descendants<Button>(RemoteKeys))
             button.IsEnabled = !busy || button is VolumeButton { IsHolding: true };
         SettingsButton.IsEnabled = !busy;
+        ScheduleButton.IsEnabled = !busy;
         CheckButton.IsEnabled = !busy;
         SaveButton.IsEnabled = !busy;
     }
@@ -139,6 +140,18 @@ public partial class MainWindow : Window
         }
         catch (ArgumentException ex) { SettingsStatus.Text = ex.Message; }
         catch (InvalidOperationException ex) { SettingsStatus.Text = ex.Message; }
+    }
+
+    private void Schedule_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var endpoint = RemoteEndpoint.Normalize(Controller.Endpoint);
+            ReleaseVolume();
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(endpoint + "/schedule") { UseShellExecute = true });
+        }
+        catch (ArgumentException ex) { SettingsStatus.Text = ex.Message; }
+        catch (Win32Exception) { SettingsStatus.Text = "Nie można otworzyć przeglądarki. Otwórz adres ESP32 z końcówką /schedule."; }
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)

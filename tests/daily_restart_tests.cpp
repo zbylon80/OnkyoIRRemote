@@ -11,6 +11,7 @@
 #include "VolumeHoldSafety.h"
 #include "DeviceDiagnostics.h"
 #include "DailyRestart.h"
+#include "AlarmScheduler.h"
 #include "FirmwareVersion.h"
 
 // The hardware-facing functions below are extracted from the actual sketch.
@@ -102,6 +103,18 @@ void (*syncCallback)(timeval *) = nullptr;
 void sntp_set_time_sync_notification_cb(void (*cb)(timeval *)) { syncCallback = cb; }
 void configTzTime(const char *zone, const char *, const char *) { assert(std::string(zone) == RESTART_TIME_ZONE); }
 DailyRestartPolicy dailyRestart;
+AlarmScheduler alarms;
+struct FakeAlarmStorage {
+  bool writable = true;
+  AlarmSettings saved{};
+  int writes = 0;
+  size_t putBytes(const char *, const void *value, size_t size) {
+    ++writes;
+    if (!writable) return 0;
+    saved = *static_cast<const AlarmSettings *>(value);
+    return size;
+  }
+} alarmPreferences;
 VolumeHoldSafety volumeSafety;
 const char *preparedVolumeCommand = nullptr;
 constexpr unsigned long VOLUME_WATCHDOG_MS = 2000, VOLUME_REPEAT_INTERVAL_MS = 110;
@@ -117,6 +130,8 @@ bool sendOnkyoCommand(const String &) {
 }
 std::atomic<bool> timeSynchronized{false};
 bool restartStorageReady = true, otaInProgress = false;
+bool manualRestartRequested = false;
+uint64_t manualRestartAtMs = 0;
 uint64_t lastRestartCheckMs = 0;
 unsigned long lastVolumeSignalMs = 0;
 unsigned long millis() { return static_cast<unsigned long>(fakeUptime); }
@@ -131,6 +146,9 @@ tm local(int hour, int minute = 0, int second = 0, int day = 2, int month = 10) 
   return value;
 }
 void resetFixture() {
+  manualRestartRequested = false; manualRestartAtMs = 0;
+  alarmPreferences = FakeAlarmStorage{};
+  alarms = AlarmScheduler{};
   fakeUptime = 0; fakeLocal = local(3); clockConversionWorks = true;
   events.clear(); resetCount = 0; writeCount = 0;
   restartPreferences = FakeStorage{};
@@ -147,6 +165,8 @@ void resetFixture() {
   deviceDiagnostics.maxLoopMs = 0;
 }
 
+#include "alarm_scheduler_checks.h"
+
 uint64_t press(const char *direction) {
   server.args = {{"direction", direction}};
   handleVolumePress();
@@ -161,6 +181,63 @@ void start(uint64_t session) {
 }
 
 int main() {
+  resetFixture();
+  handleRestartRequest(); assert(server.status == 400 && !manualRestartRequested && resetCount == 0);
+  server.args = {{"confirm","restart"}}; otaInProgress = true;
+  handleRestartRequest(); assert(server.status == 409 && !manualRestartRequested);
+  otaInProgress = false; heldVolumeCommand = "VOL+";
+  handleRestartRequest(); assert(server.status == 202 && manualRestartRequested && heldVolumeCommand == nullptr);
+  assert(resetCount == 0 && irCommands == 0 && writeCount == 0);
+  fakeUptime = 499; handleRequestedRestart(); assert(resetCount == 0);
+  handleRestartRequest(); assert(manualRestartAtMs == 500); // Duplicate cannot postpone reboot.
+  fakeUptime = 500; otaInProgress = true; handleRequestedRestart(); assert(resetCount == 0);
+  otaInProgress = false; handleRequestedRestart(); assert(resetCount == 1 && irCommands == 0);
+  resetFixture(); alarms.storageReady = true; alarms.settings.slots[1].enabled = 1;
+  alarms.settings.slots[1].dueDay = 20261002;
+  fakeLocal = local(7); handleAlarms(); assert(alarms.pending());
+  server.args = {{"confirm","restart"}};
+  handleRestartRequest(); assert(server.status == 409 && !manualRestartRequested && resetCount == 0);
+  std::cout << "Manual restart: acknowledgment, delay, duplicate requests, OTA and alarm guards passed.\n";
+  alarmSchedulerChecks();
+  resetFixture(); alarms.storageReady = true;
+  server.args = {{"action","off"},{"offTime","02:00"}};
+  saveAlarmSettings();
+  assert(server.status == 200 && irCommands == 0 && alarmPreferences.writes == 1);
+  assert(alarms.settings.slots[0].dueDay == 20261003 && !alarms.settings.slots[1].enabled);
+  server.args = {{"action","on"},{"onTime","07:00"},{"source","CD"}};
+  saveAlarmSettings();
+  assert(server.status == 200 && irCommands == 0 && alarmPreferences.writes == 2);
+  assert(alarmPreferences.saved.slots[0].enabled && alarmPreferences.saved.slots[1].source == 1);
+  std::cout << "ALARMS:" << server.body << "\n";
+  for (const auto &invalid : std::vector<std::pair<std::string,std::string>>{
+      {"onTime","2:00"},{"onTime","24:00"},{"onTime","02:60"},
+      {"action","invalid"},{"source","POWER"}}) {
+    auto original = server.args;
+    server.args[invalid.first] = invalid.second;
+    saveAlarmSettings(); assert(server.status == 400 && irCommands == 0 && alarmPreferences.writes == 2);
+    server.args = original;
+  }
+  // Neither a read nor a save emits IR. Failure preserves settings and stops execution.
+  handleAlarmSettings(); assert(irCommands == 0 && alarmPreferences.writes == 2);
+  timeSynchronized.store(false); saveAlarmSettings(); assert(server.status == 409 && alarmPreferences.writes == 2);
+  server.args = {{"action","cancelOn"}}; saveAlarmSettings();
+  assert(server.status == 200 && !alarms.settings.slots[1].enabled && alarms.settings.slots[0].enabled);
+  timeSynchronized.store(true); server.args = {{"action","on"},{"onTime","07:00"},{"source","CD"}};
+  saveAlarmSettings(); assert(server.status == 200 && alarms.settings.slots[1].enabled);
+  fakeLocal = local(7); handleAlarms(); assert(alarms.pending() && !alarms.settings.slots[1].enabled);
+  fakeUptime = 2000; handleAlarms(); assert(!alarms.pending());
+  server.args["onTime"] = "07:10"; saveAlarmSettings();
+  assert(server.status == 200 && alarms.settings.slots[1].dueDay == 20261002 && alarms.settings.slots[1].enabled);
+  fakeLocal = local(7,10); handleAlarms(); assert(alarms.pending() && !alarms.settings.slots[1].enabled);
+  alarms.cancelSource();
+  server.args = {{"action","off"},{"offTime","07:11"}}; saveAlarmSettings(); assert(server.status == 200);
+  server.args = {{"action","on"},{"onTime","07:11"},{"source","CD"}};
+  saveAlarmSettings(); assert(server.status == 400);
+  server.args["onTime"] = "07:12";
+  const int commandsBeforeFailure = irCommands;
+  alarmPreferences.writable = false;
+  saveAlarmSettings(); assert(server.status == 500 && !alarms.storageReady && irCommands == commandsBeforeFailure);
+  resetFixture();
   DailyRestartPolicy policy;
   policy.begin(0, 0);
   tm at3 = local(3), before3 = local(2, 59, 59), before5 = local(4, 59, 59), at5 = local(5);

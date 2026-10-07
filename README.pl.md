@@ -2,6 +2,41 @@
 
 [English version](README.md)
 
+## Restart z diagnostyki
+
+W panelu **Diagnostyka** przycisk **Restart ESP32** uruchamia ponownie pilot.
+Nie wysyła POWER i zachowuje zapisane ustawienia. Po przyjęciu restartu odczekaj
+około 15 sekund i wybierz **Odśwież dane**; zegar ponownie synchronizuje się przez
+NTP. Restart jest niedostępny podczas OTA i oczekiwania na źródło pobudki.
+
+## Budzik i wyłączenie
+
+Panel **Budzik i wyłączenie** jest dostępny z pilotów Basic/Advanced oraz pod
+adresem ESP32 z końcówką `/schedule`. Ikona zegarka w nagłówku strony Basic
+oraz w górnym menu widżetów Windows i Android otwiera ten wspólny panel
+w przeglądarce. Podpowiedź ikony: **Budzik i wyłączenie**.
+
+Panel ma tylko dwie niezależne opcje: **Włącz** — godzina, źródło i **Ustaw**,
+oraz **Wyłącz** — godzina i **Ustaw**. Możesz ustawić jedną akcję lub obie.
+Każda działa jeden raz: dziś, jeśli wybrana minuta jeszcze się nie rozpoczęła,
+albo jutro. Pod przyciskiem pojawia się docelowa data i godzina oraz **×** do
+anulowania. Domyślnie żadna akcja nie jest zaplanowana; godziny to 07:00 i 02:00.
+Pobudka wybiera źródło 2 sekundy po POWER. Głośność pozostaje bez zmian. Do pobudki
+wybierz źródło, które będzie grało, np. TUNER.
+
+Zapis jest wspólny dla wszystkich klientów i pozostaje w pamięci ESP32 po
+restarcie. Telefon, komputer i strona nie muszą pozostać włączone. ESP32 musi
+mieć zasilanie; po każdym uruchomieniu synchronizuje czas przez NTP. Korzysta
+z czasu polskiego i uwzględnia zmianę czasu. Po synchronizacji może wykonywać
+harmonogram bez Internetu, dopóki nie zostanie zrestartowany.
+
+POWER przełącza stan amplitunera. Wyłączenie zakłada, że amplituner już gra,
+a pobudka — że jest wyłączony. Nie odczytujemy jego rzeczywistego stanu.
+Pomijamy przegapione godziny oraz akcje podczas OTA, nauki IR i przytrzymania
+przycisku. Po wykonaniu akcja sama się wyłącza i nie powtarza po restarcie lub
+następnego dnia. Ponowne **Ustaw** planuje kolejną akcję. Godzina, której nie
+ma podczas wiosennej zmiany czasu, zostaje pominięta.
+
 ## Wersjonowanie firmware
 
 Numer wersji ma jedno źródło: [FirmwareVersion.h](firmware/OnkyoRemote/FirmwareVersion.h).

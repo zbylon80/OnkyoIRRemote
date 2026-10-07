@@ -12,13 +12,15 @@ functions = ('restartUptimeMs', 'recordUserActivity', 'onTimeSynchronized',
              'handleDiagnosticsPage', 'handleDailyRestart', 'stopVolume',
              'readVolumeSession', 'handleVolumePress', 'expireVolumeHold', 'handleVolumeStart',
              'handleVolumeKeepalive', 'handleVolumeStop', 'repeatHeldVolume', 'handleVersion',
-             'handleRoot', 'handleManifest', 'handleIcon', 'startOta')
+             'handleRoot', 'handleManifest', 'handleIcon', 'startOta',
+             'persistAlarms', 'handleAlarmSettings', 'readAlarmTime', 'saveAlarmSettings', 'handleAlarms',
+             'handleRestartRequest', 'handleRequestedRestart')
 timeout = re.search(r'^constexpr uint32_t OTA_RECEIVE_TIMEOUT_MS = \d+;', source, re.M)
 if timeout is None:
     raise SystemExit('Cannot find OTA timeout in milliseconds.')
 pieces = [timeout.group()]
 for name in functions:
-    match = re.search(rf'^(?:uint64_t|void|const char \*)\s*{name}\([^\n]*\) \{{.*?^\}}', source, re.M | re.S)
+    match = re.search(rf'^(?:uint64_t|bool|void|const char \*)\s*{name}\([^\n]*\) \{{.*?^\}}', source, re.M | re.S)
     if match is None:
         raise SystemExit(f'Cannot find actual sketch function: {name}')
     pieces.append(match.group())
@@ -48,10 +50,17 @@ if result.returncode:
     raise SystemExit(result.returncode)
 checked = 0
 for line in result.stdout.splitlines():
+    if line.startswith('ALARMS:'):
+        data = json.loads(line.split(':', 1)[1])
+        assert data['clockReady'] and data['storageReady']
+        assert data['off'] == {'enabled': True, 'time': '02:00', 'date': '2026-10-03'}
+        assert data['on'] == {'enabled': True, 'time': '07:00', 'date': '2026-10-02', 'source': 'CD'}
+        continue
     if line.startswith('DIAGNOSTICS_'):
         label, body = line.split(':', 1)
         data = json.loads(body)
-        assert data['version'] == '1.1.0' and data['volumeUpLimitMs'] == 3000
+        version = re.search(r'ONKYO_FIRMWARE_VERSION "([^"]+)"', (sketch / 'FirmwareVersion.h').read_text()).group(1)
+        assert data['version'] == version and data['volumeUpLimitMs'] == 3000
         assert data['volumeWatchdogMs'] == 2000 and data['reset']['reason'] == 'software'
         assert data['memory']['freeBytes'] == 180000 and data['memory']['minimumFreeBytes'] == 160000
         assert not any(f'"{key}"' in body.lower() for key in ('password', 'ssid', 'macaddress', 'otapassword', 'wifissid'))

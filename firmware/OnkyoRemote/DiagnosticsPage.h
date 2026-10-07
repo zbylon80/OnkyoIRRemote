@@ -29,10 +29,13 @@ a{color:#d1c8ba;margin-right:24px}#result{min-height:1.5em}
 <dt>Najdłuższy obieg programu</dt><dd id="loop">—</dd>
 <dt>Synchronizacja czasu</dt><dd id="clock">—</dd>
 <dt>Limit zgłaśniania</dt><dd id="limit">—</dd>
-</dl><p><a href="/">Pilot Basic</a><a href="/advanced">Pilot Advanced</a></p>
+</dl><p>Restart uruchamia ponownie pilot ESP32. Zapisane ustawienia i harmonogram pozostają w pamięci. Po restarcie zegar ponownie synchronizuje się przez NTP.</p>
+<button id="restart" type="button">Restart ESP32</button>
+<p><a href="/">Pilot Basic</a><a href="/advanced">Pilot Advanced</a><a href="/schedule">Budzik i wyłączenie</a></p>
 <script>
 const button = document.querySelector('#refresh');
 const result = document.querySelector('#result');
+const restartButton = document.querySelector('#restart');
 const show = (id, value) => { document.getElementById(id).textContent = value; };
 const duration = seconds => `${Math.floor(seconds / 3600)} godz. ${Math.floor(seconds % 3600 / 60)} min ${seconds % 60} s`;
 const bytes = value => `${(value / 1024).toFixed(1)} KiB`;
@@ -41,7 +44,7 @@ const resetNames = {power_on:'włączenie zasilania',external:'zewnętrzny reset
   watchdog:'watchdog',deep_sleep:'wybudzenie',brownout:'spadek napięcia',sdio:'reset SDIO',unknown:'inny'};
 async function refresh() {
   if (button.disabled) return;
-  button.disabled = true; result.textContent = 'Pobieram dane…';
+  button.disabled = true; restartButton.disabled = true; result.textContent = 'Pobieram dane…';
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3000);
   try {
@@ -64,10 +67,29 @@ async function refresh() {
   } catch (_) {
     result.textContent = 'Nie udało się pobrać danych. Spróbuj odświeżyć ponownie.';
   } finally {
-    clearTimeout(timeout); button.disabled = false;
+    clearTimeout(timeout); button.disabled = false; restartButton.disabled = false;
   }
 }
 button.addEventListener('click', refresh);
+restartButton.addEventListener('click', async () => {
+  if (restartButton.disabled || button.disabled) return;
+  button.disabled = true; restartButton.disabled = true;
+  result.textContent = 'Wysyłam polecenie restartu…';
+  const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetch('/restart', {method:'POST',cache:'no-store',signal:controller.signal,
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'confirm=restart'});
+    const data = await response.json();
+    if (!response.ok || data.ok !== true || data.restarting !== true) throw new Error(data.error || 'Nie przyjęto restartu.');
+    result.textContent = 'ESP32 uruchamia się ponownie. Odczekaj około 15 sekund, potem odśwież dane.';
+    show('clock', 'oczekuje na synchronizację po restarcie');
+  } catch (error) {
+    result.textContent = 'Brak potwierdzenia restartu. '+error.message+' Odśwież dane, aby sprawdzić urządzenie.';
+  } finally {
+    clearTimeout(timeout); button.disabled = false;
+    // Require a read after restart/unknown outcome; never retry the POST automatically.
+  }
+});
 refresh();
 </script></main></body></html>
 )HTML";

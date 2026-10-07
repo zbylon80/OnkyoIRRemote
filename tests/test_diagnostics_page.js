@@ -5,10 +5,10 @@ const assert = require('node:assert/strict');
 const header = fs.readFileSync(path.join(__dirname, '../firmware/OnkyoRemote/DiagnosticsPage.h'), 'utf8');
 const script = header.match(/<script>([\s\S]*?)<\/script>/)[1];
 const fields = new Map(), requests = [], timers = new Map();
-let nextTimer = 0, clicked;
+let nextTimer = 0, clicked, restartClicked;
 const field = id => {
   if (!fields.has(id)) fields.set(id, {textContent: '', disabled: false,
-    addEventListener(type, callback) { if (type === 'click') clicked = callback; }});
+    addEventListener(type, callback) { if (type === 'click') { if (id === 'restart') restartClicked = callback; else clicked = callback; } }});
   return fields.get(id);
 };
 const flush = async () => { for (let i = 0; i < 12; ++i) await Promise.resolve(); };
@@ -18,10 +18,10 @@ vm.runInNewContext(script, {
   setTimeout(callback) { const id = ++nextTimer; timers.set(id, callback); return id; },
   clearTimeout(id) { timers.delete(id); },
   fetch(url, options) {
-    assert.equal(url, '/diagnostics'); assert.equal(options.cache, 'no-store');
+    assert.ok(url === '/diagnostics' || url === '/restart'); assert.equal(options.cache, 'no-store');
     return new Promise((resolve, reject) => {
       options.signal.addEventListener('abort', () => reject(new Error('timeout')));
-      requests.push({finish(data) { resolve({ok:true,json:async()=>data}); }, reject});
+      requests.push({url,options,finish(data,ok=true) { resolve({ok,json:async()=>data}); }, reject});
     });
   }
 });
@@ -50,5 +50,21 @@ const snapshot = {
   clicked(); assert.equal(requests.length, 4);
   requests[3].finish(snapshot); await flush();
   assert.equal(timers.size, 0); // Successful reads schedule no background work.
+  assert.equal(requests.filter(r => r.url === '/restart').length, 0);
+  restartClicked(); restartClicked(); clicked(); assert.equal(requests.length, 5);
+  assert.equal(requests[4].url, '/restart'); assert.equal(requests[4].options.method, 'POST');
+  assert.equal(requests[4].options.body, 'confirm=restart');
+  requests[4].finish({ok:true,restarting:true}); await flush();
+  assert.ok(field('result').textContent.includes('15 sekund')); assert.equal(field('restart').disabled, true);
+  assert.equal(field('refresh').disabled, false); assert.equal(timers.size, 0);
+  restartClicked(); assert.equal(requests.length, 5);
+  clicked(); requests[5].finish(snapshot); await flush();
+  assert.equal(field('restart').disabled, false);
+  restartClicked(); requests[6].finish({ok:false,error:'Trwa aktualizacja'},false); await flush();
+  assert.ok(field('result').textContent.includes('Trwa aktualizacja'));
+  clicked(); requests[7].finish(snapshot); await flush();
+  restartClicked(); [...timers.values()][0](); await flush();
+  assert.equal(field('restart').disabled, true); assert.equal(field('refresh').disabled, false);
+  assert.equal(requests.length, 9); assert.equal(timers.size, 0); // No restart retry after timeout.
   console.log('Actual diagnostics page passed rendering, manual refresh and recovery tests.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

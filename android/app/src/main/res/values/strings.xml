@@ -45,4 +45,5 @@
     <string name="manual_add">Przytrzymaj puste miejsce na ekranie głównym, wybierz Widżety → Pilot Onkyo.</string>
     <string name="tap_note">Głośność: jedno kliknięcie = jeden krok. Przytrzymanie służy do przesuwania lub zmiany rozmiaru widżetu.</string>
     <string name="confirmation_note">Potwierdzenie oznacza przyjęcie komendy przez ESP32. Pilot IR nie odczytuje stanu ani poziomu głośności amplitunera.</string>
+    <string name="schedule_description">Budzik i wyłączenie</string>
 </resources>

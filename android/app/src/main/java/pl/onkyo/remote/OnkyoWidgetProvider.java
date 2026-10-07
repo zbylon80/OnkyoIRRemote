@@ -77,6 +77,13 @@ public final class OnkyoWidgetProvider extends AppWidgetProvider {
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id);
         views.setOnClickPendingIntent(R.id.settings, PendingIntent.getActivity(context, 0, configure,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        if (configured) {
+            String endpoint = RemoteEndpoint.normalize(WidgetSettings.endpoint(context, id));
+            Intent schedule = new Intent(Intent.ACTION_VIEW, Uri.parse(endpoint + "/schedule"));
+            views.setOnClickPendingIntent(R.id.schedule, PendingIntent.getActivity(context, id, schedule,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        }
+        views.setBoolean(R.id.schedule, "setEnabled", configured && !busy);
         views.setTextViewText(R.id.status, configured ? status : context.getString(R.string.not_configured));
         if (Build.VERSION.SDK_INT >= 36) {
             addVolumeTouch(context, views, id, generation, R.id.volume_down_slot, "down", configured && !busy);

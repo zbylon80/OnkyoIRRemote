@@ -3,6 +3,63 @@
 Firmware versions use `MAJOR.MINOR.PATCH`. Entries marked **Unreleased** describe
 prepared changes; they do not mean that a device has been updated.
 
+## 1.3.1 — 2026-10-07
+
+- Replace the locale-dependent time input with separate hour (00–23) and minute
+  (00–59) selectors. Always show 24-hour time, including on browsers configured
+  for AM/PM, while preserving the existing scheduling and cancellation API.
+- Verified browser-script tests, compilation, successful OTA, HTTP 200/version
+  and unchanged device schedules. Checked hour/minute selection and layout at
+  320 px on the running page without saving test changes.
+
+## 1.3.0 — 2026-10-07
+
+- Replace misleading daily enable checkboxes with two independent one-shot
+  actions: wake time/source + Set, and off time + Set. Show the scheduled date
+  and an optional cancel button; preserve the other action and unsaved input.
+- Schedule the next occurrence of the chosen time (today if still ahead,
+  otherwise tomorrow). Persist consumption before POWER, so neither restart
+  nor the following day repeats a completed action. A new Set can arm it again.
+- Migrate saved times/sources without requiring a storage reset. Existing active
+  daily actions become one-shot actions after NTP synchronization.
+- Scheduling now uses `POST /alarms` actions `on`, `off`, `cancelOn`, `cancelOff`.
+  Reject new schedules while the clock is unavailable; cancellation remains
+  available. Legacy page writes require refreshing the panel.
+- Verified host scheduler/API/page tests, firmware compilation and successful
+  OTA upload. On the device, verified HTTP 200/version, setting both actions,
+  retention after returning to Basic, and independent cancellation. Test
+  schedules were cancelled without transmitting IR.
+
+## 1.2.1 — 2026-10-07
+
+- Replace Basic's static Connected label with an accessible clock icon linking
+  to `/schedule`; use the same icon for the Advanced shortcut.
+- Move the Windows/Android schedule shortcut into each widget's top menu,
+  using a vector clock icon with an accessible label (widgets 0.3.1).
+- Verified Windows layout at three sizes, Android build/lint, firmware build
+  and OTA upload, HTTP 200/version, and clock navigation on the running page.
+
+## 1.2.0 — 2026-10-07
+
+- Add a manual ESP32 restart button to diagnostics and `POST /restart`.
+  Acknowledge before rebooting, stop held controls and retain stored settings.
+  Reject during OTA/pending wake source; never retry reboot requests automatically.
+
+- Add two independent daily schedules stored in ESP32 flash: off (POWER) and
+  wake (POWER, then the chosen source after two seconds). Defaults are disabled,
+  with times 02:00 and 07:00. No change to volume or amplifier state detection.
+- Add `/schedule` to Basic/Advanced and a browser shortcut in the settings of
+  Windows/Android widgets (0.3.0). All clients edit the same device settings.
+- Add read/write `/alarms` API with atomic settings persistence and validation.
+  Use Warsaw local time and NTP, persist execution dates before sending IR,
+  never catch up missed minutes or repeat an action on the same local day.
+- Skip scheduled actions during OTA, IR learning and held controls. Manual
+  commands cancel a pending source selection. Protect pending/upcoming alarms
+  from the existing idle restart. Keep volume watchdog and hold limits.
+- Uploaded successfully over OTA; verified firmware version, both page routes,
+  alarm settings read/save and an actual manual restart with HTTP recovery and
+  retained settings. Host scheduler/HTTP/browser tests passed.
+
 ## 1.1.0 — 2026-10-02
 
 - Disable Wi-Fi modem sleep to reduce network latency; this increases radio

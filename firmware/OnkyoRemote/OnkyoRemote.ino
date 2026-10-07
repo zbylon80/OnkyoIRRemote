@@ -17,6 +17,8 @@
 #include "VolumeControls.h"
 #include "DeviceDiagnostics.h"
 #include "DiagnosticsPage.h"
+#include "AlarmScheduler.h"
+#include "AlarmPage.h"
 
 constexpr uint8_t IR_SEND_PIN = 26;
 constexpr uint8_t IR_RECEIVE_PIN = 27;
@@ -92,10 +94,14 @@ RemoteFunction REMOTE_FUNCTIONS[] = {
 WebServer server(80);
 Preferences preferences;
 Preferences restartPreferences;
+Preferences alarmPreferences;
+AlarmScheduler alarms;
 DailyRestartPolicy dailyRestart;
 std::atomic<bool> timeSynchronized{false};
 bool restartStorageReady = false;
 bool otaInProgress = false;
+bool manualRestartRequested = false;
+uint64_t manualRestartAtMs = 0;
 uint64_t lastRestartCheckMs = 0;
 VolumeHoldSafety volumeSafety;
 DeviceDiagnostics deviceDiagnostics;
@@ -210,7 +216,7 @@ void handleDailyRestart() {
   tm localTime{};
   // Nonblocking: never wait for NTP from the control loop.
   if (localtime_r(&now, &localTime) == nullptr) return;
-  const bool busy = otaInProgress || learningCommand != nullptr || heldVolumeCommand != nullptr;
+  const bool busy = otaInProgress || learningCommand != nullptr || heldVolumeCommand != nullptr || alarms.blocksRestart(&localTime);
   const uint32_t day = dailyRestart.dueDay(uptime, &localTime, true, busy);
   if (day == 0) return;
 
@@ -247,11 +253,14 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #a9a7a2; color: #eeeae2; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     main { width: min(100%, 430px); min-height: 100vh; padding: 24px 18px 32px; background: linear-gradient(110deg, #121212, #202020 52%, #141414); border: 1px solid #515151; box-shadow: inset 0 0 0 2px #0b0b0b, 0 16px 38px #0008; }
-    header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 28px; padding-bottom: 13px; border-bottom: 1px solid #555; }
+    header { display: flex; justify-content: space-between; align-items: center; gap:12px; margin-bottom: 28px; padding-bottom: 13px; border-bottom: 1px solid #555; }
+    header > div { min-width:0; }
     h1 { margin: 0; font-size: 1.1rem; letter-spacing: .08em; text-shadow: 0 1px #000; }
     .onkyo-logo { font-family: Georgia, serif; font-size: 1.55rem; font-weight: 900; letter-spacing: -.06em; }
     header p { margin: 4px 0 0; color: #bbb5aa; font-size: .8rem; }
-    .connected { color: #91d27a; }
+    .schedule-icon { display:inline-flex;flex:0 0 44px;width:44px;height:44px;align-items:center;justify-content:center;color:#eeeae2;border:1px solid #666;border-radius:5px;background:linear-gradient(135deg,#3b3b3b,#1d1d1d); }
+    .schedule-icon:hover { border-color:#d1c8ba; }
+    .schedule-icon:focus-visible { outline:2px solid #d1c8ba;outline-offset:2px; }
     button { min-height: 56px; border: 1px solid #666; border-radius: 5px; background: linear-gradient(135deg, #3b3b3b, #1d1d1d); box-shadow: inset 0 1px #696969, 0 2px 2px #000; color: inherit; font: inherit; font-size: 1rem; font-weight: 650; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     button:focus { outline: none; }
     button:focus-visible { outline: 2px solid #d1c8ba; outline-offset: 2px; }
@@ -275,7 +284,7 @@ const char INDEX_PAGE[] PROGMEM = R"HTML(
   <main>
     <header>
       <div><h1 class="onkyo-logo">ONKYO</h1><p>REMOTE CONTROL TRANSMITTER · RC-209S</p></div>
-      <p class="connected">● Connected</p>
+      <a class="schedule-icon" href="/schedule" aria-label="Budzik i wyłączenie" title="Budzik i wyłączenie"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></a>
     </header>
     <button class="power" type="button" data-command="POWER">POWER</button>
     <p class="label">VOLUME</p>
@@ -448,6 +457,7 @@ void handleAdvancedPage() {
   page += remoteShellStyle();
   page += F("<style>.firmware-version{margin:14px 0 0;color:#bbb5aa;font-size:.72rem;text-align:center}.remote button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}.remote button:focus{outline:none}.remote button:focus-visible{outline:2px solid #d1c8ba;outline-offset:2px}</style>");
   page += renderRemoteShell(false);
+  page += F("<a href=\"/schedule\" aria-label=\"Budzik i wyłączenie\" title=\"Budzik i wyłączenie\" style=\"display:flex;align-items:center;justify-content:center;width:44px;height:44px;margin:14px auto;border:1px solid #666;border-radius:5px\"><svg aria-hidden=\"true\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/></svg></a>");
   page += F("<a class=\"back\" href=\"/\">Wróć do wersji Basic</a><script>document.querySelectorAll('[data-id]:not([data-hold-command])').forEach(b=>b.onclick=()=>fetch('/command',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(b.dataset.id)}));</script><script src=\"/volume.js\"></script>");
   page += F("<p class=\"firmware-version\">Firmware v" ONKYO_FIRMWARE_VERSION "</p><a href=\"/status\" style=\"margin-top:12px;font-size:.72rem\">Diagnostyka</a></main></body></html>");
   server.send(200, "text/html", page);
@@ -533,7 +543,143 @@ bool sendOnkyoCommand(const String &name) {
   return false;
 }
 
+bool persistAlarms(const AlarmSettings &settings) {
+  return alarms.storageReady && alarmPreferences.putBytes("settings", &settings, sizeof(settings)) == sizeof(settings);
+}
+
+void handleAlarmSettings() {
+  const time_t now = time(nullptr);
+  tm local{};
+  const bool ready = timeSynchronized.load() && localtime_r(&now, &local) != nullptr && alarmDay(&local) != 0;
+  char clock[32] = "";
+  if (ready) strftime(clock, sizeof(clock), "%Y-%m-%d %H:%M:%S", &local);
+  const auto &off = alarms.settings.slots[0];
+  const auto &on = alarms.settings.slots[1];
+  char offDate[16] = "", onDate[16] = "";
+  if (off.dueDay) snprintf(offDate, sizeof(offDate), "%04lu-%02lu-%02lu", (unsigned long)(off.dueDay / 10000), (unsigned long)(off.dueDay / 100 % 100), (unsigned long)(off.dueDay % 100));
+  if (on.dueDay) snprintf(onDate, sizeof(onDate), "%04lu-%02lu-%02lu", (unsigned long)(on.dueDay / 10000), (unsigned long)(on.dueDay / 100 % 100), (unsigned long)(on.dueDay % 100));
+  char body[1024];
+  snprintf(body, sizeof(body),
+      "{\"clockReady\":%s,\"storageReady\":%s,\"localTime\":\"%s\",\"lastResult\":\"%s\","
+      "\"off\":{\"enabled\":%s,\"time\":\"%02u:%02u\",\"date\":\"%s\"},"
+      "\"on\":{\"enabled\":%s,\"time\":\"%02u:%02u\",\"date\":\"%s\",\"source\":\"%s\"}}",
+      ready ? "true" : "false", alarms.storageReady ? "true" : "false", clock, alarms.result,
+      off.enabled ? "true" : "false", off.hour, off.minute, offDate,
+      on.enabled ? "true" : "false", on.hour, on.minute, onDate, ALARM_SOURCES[on.source]);
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json; charset=utf-8", body);
+}
+
+bool readAlarmTime(const char *timeKey, AlarmSlot &slot) {
+  if (!server.hasArg(timeKey)) return false;
+  const String value = server.arg(timeKey);
+  if (value.length() != 5 || value[2] != ':') return false;
+  for (unsigned int i = 0; i < 5; ++i) {
+    if (i != 2 && (value[i] < '0' || value[i] > '9')) return false;
+  }
+  slot.hour = (value[0] - '0') * 10 + value[1] - '0';
+  slot.minute = (value[3] - '0') * 10 + value[4] - '0';
+  return slot.hour < 24 && slot.minute < 60;
+}
+
+void saveAlarmSettings() {
+  server.sendHeader("Cache-Control", "no-store");
+  const String action = server.arg("action");
+  const bool on = action == "on" || action == "cancelOn";
+  const bool cancel = action == "cancelOn" || action == "cancelOff";
+  if (action != "on" && action != "off" && !cancel) {
+    server.send(400, "application/json; charset=utf-8", "{\"error\":\"Odśwież panel budzika. Wybierz Ustaw lub Anuluj.\"}");
+    return;
+  }
+  AlarmSettings updated = alarms.settings;
+  auto &slot = updated.slots[on ? 1 : 0];
+  if (cancel) slot.enabled = 0;
+  else {
+    const time_t now = time(nullptr);
+    tm local{};
+    if (!timeSynchronized.load() || localtime_r(&now, &local) == nullptr || !alarmDay(&local)) {
+      server.send(409, "application/json; charset=utf-8", "{\"error\":\"Zegar ESP32 czeka na NTP. Spróbuj za chwilę.\"}");
+      return;
+    }
+    bool sourceFound = !on;
+    if (on) for (uint8_t i = 0; i < ALARM_SOURCE_COUNT; ++i) {
+      if (server.arg("source") == ALARM_SOURCES[i]) { slot.source = i; sourceFound = true; break; }
+    }
+    if (!sourceFound || !readAlarmTime(on ? "onTime" : "offTime", slot)) {
+      server.send(400, "application/json; charset=utf-8", "{\"error\":\"Sprawdź godzinę i źródło.\"}");
+      return;
+    }
+    slot.enabled = 1;
+    slot.dueDay = nextAlarmDay(&local, slot.hour, slot.minute);
+    for (auto &legacy : updated.slots) if (legacy.enabled && !legacy.dueDay)
+      legacy.dueDay = nextAlarmDay(&local, legacy.hour, legacy.minute);
+  }
+  if (!validAlarms(updated)) {
+    server.send(400, "application/json; charset=utf-8", "{\"error\":\"Włączenie i wyłączenie nie mogą wypadać jednocześnie.\"}");
+    return;
+  }
+  if (!persistAlarms(updated)) {
+    alarms.storageReady = false;
+    alarms.cancelSource();
+    server.send(500, "application/json; charset=utf-8", "{\"error\":\"Nie udało się zapisać harmonogramu w pamięci ESP32.\"}");
+    return;
+  }
+  if (on) alarms.cancelSource();
+  alarms.settings = updated;
+  recordUserActivity();
+  handleAlarmSettings();
+}
+
+void handleAlarms() {
+  const time_t now = time(nullptr);
+  tm local{};
+  const bool ready = timeSynchronized.load() && localtime_r(&now, &local) != nullptr;
+  if (ready && alarms.storageReady) {
+    auto upgraded = alarms.settings;
+    bool changed = false;
+    for (auto &slot : upgraded.slots) if (slot.enabled && !slot.dueDay) {
+      slot.dueDay = nextAlarmDay(&local, slot.hour, slot.minute);
+      changed = true;
+    }
+    if (changed) {
+      if (!persistAlarms(upgraded)) { alarms.storageReady = false; alarms.result = "Błąd zapisu budzika"; return; }
+      alarms.settings = upgraded;
+    }
+  }
+  alarms.tick(restartUptimeMs(), &local, ready,
+              otaInProgress || learningCommand != nullptr || heldVolumeCommand != nullptr || !irTransmissionEnabled,
+              persistAlarms, [](const char *command) { return sendOnkyoCommand(command); });
+}
+
+void handleRestartRequest() {
+  server.sendHeader("Cache-Control", "no-store");
+  if (server.arg("confirm") != "restart") {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  if (otaInProgress || alarms.pending()) {
+    server.send(409, "application/json; charset=utf-8", "{\"ok\":false,\"error\":\"Trwa aktualizacja lub pobudka. Spróbuj ponownie za chwilę.\"}");
+    return;
+  }
+  if (!manualRestartRequested) {
+    stopVolume();
+    recordUserActivity();
+    manualRestartAtMs = restartUptimeMs() + 500;
+    manualRestartRequested = true;
+  }
+  // Return HTTP acknowledgment before rebooting, without blocking the loop.
+  server.send(202, "application/json", "{\"ok\":true,\"restarting\":true}");
+}
+
+void handleRequestedRestart() {
+  if (!manualRestartRequested || otaInProgress || restartUptimeMs() < manualRestartAtMs) return;
+  stopVolume();
+  digitalWrite(IR_SEND_PIN, LOW);
+  ESP.restart();
+}
+
 void handleLearnStart() {
+  alarms.cancelSource();
   stopVolume();
   if (!server.hasArg("name")) {
     server.send(400, "application/json", "{\"ok\":false}");
@@ -621,6 +767,7 @@ void processLearnedCommand() {
 }
 
 void handleCommand() {
+  alarms.cancelSource();
   stopVolume();
   if (!server.hasArg("name") || !sendOnkyoCommand(server.arg("name"))) {
     server.send(400, "application/json", "{\"ok\":false}");
@@ -656,6 +803,7 @@ void handleVolumePress() {
     return;
   }
   stopVolume();
+  alarms.cancelSource();
   const uint64_t session = volumeSafety.prepare(direction == "up", millis());
   preparedVolumeCommand = command;
   // A short tap emits one command, without arming any repetition.
@@ -763,6 +911,7 @@ void startOta() {
   ArduinoOTA.setTimeout(OTA_RECEIVE_TIMEOUT_MS);
   ArduinoOTA.onStart([]() {
     otaInProgress = true;
+    alarms.cancelSource();
     recordUserActivity();
   });
   ArduinoOTA.onEnd([]() {
@@ -786,6 +935,17 @@ void setup() {
   restartStorageReady = restartPreferences.begin("onkyo-restart", false);
   dailyRestart.begin(restartUptimeMs(), restartStorageReady ? restartPreferences.getUInt("restartDay", 0) : 0);
   if (!restartStorageReady) Serial.println(F("Daily restart disabled: storage unavailable."));
+  alarms.storageReady = alarmPreferences.begin("onkyo-alarms", false);
+  if (alarms.storageReady && alarmPreferences.isKey("settings")) {
+    AlarmSettings saved{};
+    if (alarmPreferences.getBytesLength("settings") == sizeof(saved) &&
+        alarmPreferences.getBytes("settings", &saved, sizeof(saved)) == sizeof(saved) && upgradeAlarmSettings(saved)) {
+      alarms.settings = saved;
+    } else {
+      alarms.storageReady = false;
+      alarms.result = "Harmonogram zatrzymany: nieprawidłowe dane pamięci";
+    }
+  }
 
   // The transmitter is always available.  The receiver is started only for
   // an active learning session, so ordinary remotes are ignored otherwise.
@@ -824,6 +984,13 @@ void setup() {
   server.on("/version", HTTP_GET, handleVersion);
   server.on("/diagnostics", HTTP_GET, handleDiagnostics);
   server.on("/status", HTTP_GET, handleDiagnosticsPage);
+  server.on("/restart", HTTP_POST, handleRestartRequest);
+  server.on("/schedule", HTTP_GET, []() {
+    server.sendHeader("Cache-Control", "no-store");
+    server.send_P(200, "text/html; charset=utf-8", ALARM_PAGE);
+  });
+  server.on("/alarms", HTTP_GET, handleAlarmSettings);
+  server.on("/alarms", HTTP_POST, saveAlarmSettings);
   server.on("/advanced", HTTP_GET, handleAdvancedPage);
   server.on("/manifest.webmanifest", HTTP_GET, handleManifest);
   server.on("/icon.svg", HTTP_GET, handleIcon);
@@ -847,6 +1014,8 @@ void loop() {
   server.handleClient();
   repeatHeldVolume();
   processLearnedCommand();
+  handleRequestedRestart();
+  if (!manualRestartRequested) handleAlarms();
   handleDailyRestart();
   const uint64_t elapsed = restartUptimeMs() - started;
   if (elapsed > deviceDiagnostics.maxLoopMs) {
