@@ -1,17 +1,22 @@
 # Widżet Onkyo na Windows
 
-Natywna aplikacja 0.3.1 z małym oknem na pulpicie. Odtwarza panel Basic:
+Natywna aplikacja 0.4.0 z małym oknem na pulpicie. Odtwarza panel Basic:
 POWER, VOL−/VOL+, MUTE, TAPE-1, CD, PHONO, TUNER, VIDEO-1 oraz poprzednia
 i następna stacja. Nie zawiera panelu Advanced.
 
-Ikona zegarka w górnym menu (podpowiedź **Budzik i wyłączenie**) otwiera w przeglądarce
-panel `/schedule` na ESP32 (firmware 1.3.0 lub nowsze). Tam ustawisz niezależnie
-jednorazowe wyłączenie i pobudkę. Harmonogram jest zapisany i wykonywany przez
-ESP32, więc aplikację Windows można zamknąć.
+Ikona zegarka w górnym menu (podpowiedź **Budzik i wyłączenie**) otwiera własny
+panel w oknie widżetu. **Włącz**: godzina 00–23, minuty, źródło i **Ustaw**;
+**Wyłącz**: godzina, minuty i **Ustaw**. Każda akcja wykona się raz; zapisany termin
+potwierdza ESP32, a **×** anuluje wybraną akcję. **← Pilot** wraca do przycisków.
+Ustawienia są wspólne ze stroną WWW i Androidem (firmware 1.3.0 lub nowsze).
+Harmonogram zapisuje i wykonuje ESP32, więc aplikację Windows można zamknąć.
+**Odśwież** odczytuje zmiany z innych klientów. Po błędzie wymaga odświeżenia
+przed kolejnym zapisem; nie ponawia żądań automatycznie. Brak synchronizacji
+zegara blokuje ustawianie nowych akcji, ale pozwala anulować już zapisane.
 
 ## Uruchomienie
 
-1. Rozpakuj `OnkyoRemote-Windows-0.3.1-x64.zip` do wybranego folderu.
+1. Rozpakuj `OnkyoRemote-Windows-0.4.0-x64.zip` do wybranego folderu.
 2. Uruchom `OnkyoRemote.Windows.exe`. Wersja przenośna zawiera .NET i nie
    wymaga instalacji środowiska ani uprawnień administratora. Jest przeznaczona
    dla Windows 10/11 x64. EXE nie jest podpisany certyfikatem wydawcy.
@@ -99,7 +104,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File windows/build.ps1 -Portable
 Zwykła kompilacja tworzy aplikację korzystającą z zainstalowanego .NET Desktop
 Runtime 10 w `OnkyoRemote.Desktop/bin/Release/net10.0-windows/`.
 `-Portable` pobiera pakiety środowiska dla `win-x64`, tworzy samodzielny EXE
-w `artifacts/portable/` oraz ZIP w `artifacts/`. Pierwsza publikacja wymaga
+w `artifacts/portable-0.4.0/` oraz ZIP w `artifacts/`. Pierwsza publikacja wymaga
 dostępu do NuGet. Narzędzia lokalne i wyniki budowania są ignorowane przez Git.
 
 `-Test` uruchamia własny runner bez pakietów testowych. Lokalna atrapa ESP32
@@ -113,6 +118,9 @@ brak wielokrotnego POWER przy trzymaniu, głośność przy zminimalizowanym okni
 odrzucanie starych zdarzeń, własność sesji i zwolnienie natywnego hooka.
 Nie wstrzykuje globalnych naciśnięć do Windows. Fizyczna klawiatura wymaga
 sprawdzenia po uruchomieniu. Raport i obrazy okna trafiają do `artifacts/tests/`.
+Testy budzika sprawdzają natywny panel w trzech rozmiarach, zakres 24-godzinny,
+formularze HTTP, zachowanie drugiej akcji i jej roboczej godziny, anulowanie
+bez NTP, blokowanie ręcznych komend podczas zapisu oraz błędy bez ponowień.
 
 Ikona EXE i okna pochodzi z istniejącego `PWA_ICON` w firmware. Plik źródłowy
 to `OnkyoRemote.Desktop/Assets/remote.svg`; wielorozmiarowy `remote.ico`

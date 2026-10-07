@@ -3,6 +3,31 @@
 Firmware versions use `MAJOR.MINOR.PATCH`. Entries marked **Unreleased** describe
 prepared changes; they do not mean that a device has been updated.
 
+## Android 0.4.1 — 2026-10-07
+
+- Separate settings and alarm shortcuts across the widget header: a smaller
+  muted gear on the left and a larger clock on a green button on the right.
+  Keep independent 48 × 48 dp touch targets and existing native panel routing.
+- Built the versioned APK, passed lint and existing emulator smoke tests, and
+  visually checked the widget at its minimum and enlarged sizes.
+
+## Widgets 0.4.0 — 2026-10-07
+
+- Open native one-shot alarm panels from the Windows/Android widget clock
+  buttons. Read/write the existing ESP32 `/alarms` API without a browser or
+  firmware changes; retain 24-hour selectors, independent Set/Cancel actions
+  and the other action's unsaved input.
+- Show confirmed dates, allow cancellation without NTP, require a fresh read
+  after uncertain results, and serialize requests with manual controls. Never
+  retry writes automatically. Android preserves drafts across recreation.
+- Publish Windows portable builds into version-specific directories.
+- Verified Windows protocol/WPF/media-key tests and alarm layouts at three
+  sizes, plus Android build/lint and emulator tests of the widget clock opening
+  the native panel, 24-hour digits, independent Set/Cancel, preserved drafts and
+  NTP/error guards. Tested against loopback servers without physical IR.
+- Prepared Windows EXE/ZIP and a versioned Android debug APK. Installation on
+  the user's Windows desktop/phone remains a manual package update.
+
 ## 1.3.1 — 2026-10-07
 
 - Replace the locale-dependent time input with separate hour (00–23) and minute

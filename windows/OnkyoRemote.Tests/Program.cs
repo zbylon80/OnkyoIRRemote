@@ -30,6 +30,8 @@ internal static class Program
             {
                 await ProtocolTests();
                 await WindowTests();
+                await AlarmChecks.Run(output);
+                results.Add("PASS: native alarm panel and HTTP forms; 24h/midnight input; independent Set/Cancel and preserved drafts; no IR on open; serialized controls; NTP guards; errors/timeouts without retry; three panel sizes. PNG previews saved.");
                 await MediaKeyChecks.Run(output);
                 results.Add("PASS: native media-hook registration/removal; exactly 4 intercepted keys; other keys passed through; POWER/MUTE once per press; volume both directions while minimized; release; quick tap; 3s cap; gesture ownership; stale/queued event rejection; shutdown restores default routing.");
                 results.Add("PASS: all Windows widget checks. Physical ESP32 was not contacted.");

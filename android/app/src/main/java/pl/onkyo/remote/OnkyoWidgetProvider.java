@@ -78,8 +78,9 @@ public final class OnkyoWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.settings, PendingIntent.getActivity(context, 0, configure,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         if (configured) {
-            String endpoint = RemoteEndpoint.normalize(WidgetSettings.endpoint(context, id));
-            Intent schedule = new Intent(Intent.ACTION_VIEW, Uri.parse(endpoint + "/schedule"));
+            Intent schedule = new Intent(context, AlarmActivity.class)
+                    .setData(Uri.parse("onkyo://schedule/" + id))
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id);
             views.setOnClickPendingIntent(R.id.schedule, PendingIntent.getActivity(context, id, schedule,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         }

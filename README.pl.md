@@ -13,8 +13,9 @@ NTP. Restart jest niedostępny podczas OTA i oczekiwania na źródło pobudki.
 
 Panel **Budzik i wyłączenie** jest dostępny z pilotów Basic/Advanced oraz pod
 adresem ESP32 z końcówką `/schedule`. Ikona zegarka w nagłówku strony Basic
-oraz w górnym menu widżetów Windows i Android otwiera ten wspólny panel
-w przeglądarce. Podpowiedź ikony: **Budzik i wyłączenie**.
+otwiera panel WWW. W widżetach Windows i Android od wersji 0.4.0 zegarek w górnym
+menu otwiera własny panel aplikacji, bez przeglądarki. Wszystkie klienty odczytują
+i zapisują ten sam harmonogram ESP32. Podpowiedź ikony: **Budzik i wyłączenie**.
 
 Panel ma tylko dwie niezależne opcje: **Włącz** — godzina, źródło i **Ustaw**,
 oraz **Wyłącz** — godzina i **Ustaw**. Możesz ustawić jedną akcję lub obie.

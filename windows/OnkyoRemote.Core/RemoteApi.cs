@@ -11,7 +11,7 @@ public interface IRemoteApi
     Task VolumeAsync(string endpoint, string operation, string session);
 }
 
-public sealed class RemoteApi : IRemoteApi, IDisposable
+public sealed class RemoteApi : IRemoteApi, IAlarmApi, IDisposable
 {
     public static readonly IReadOnlyList<string> Commands = Array.AsReadOnly(new[]
     { "POWER", "VOL-", "VOL+", "MUTE", "TAPE-1", "CD", "PHONO", "TUNER", "VIDEO-1", "PRESET-", "PRESET+" });
@@ -56,18 +56,26 @@ public sealed class RemoteApi : IRemoteApi, IDisposable
         Acknowledge(await RequestAsync(endpoint, "/volume/" + operation, "session", session));
     }
 
-    private async Task<JsonElement> RequestAsync(string endpoint, string path, string? field = null, string? value = null)
+    public async Task<AlarmSnapshot> AlarmsAsync(string endpoint) => AlarmSnapshot.Parse(await RequestAsync(endpoint, "/alarms"));
+
+    public async Task<AlarmSnapshot> ChangeAlarmAsync(string endpoint, string action, string? time = null, string? source = null)
+        => AlarmSnapshot.Parse(await RequestFormAsync(endpoint, "/alarms", AlarmSnapshot.Form(action, time, source)));
+
+    private Task<JsonElement> RequestAsync(string endpoint, string path, string? field = null, string? value = null)
+        => RequestFormAsync(endpoint, path, field == null ? null : new Dictionary<string, string> { [field] = value! });
+
+    private async Task<JsonElement> RequestFormAsync(string endpoint, string path, IEnumerable<KeyValuePair<string, string>>? form)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(path.StartsWith("/volume/", StringComparison.Ordinal) ? 400 : 2000));
-        using var request = new HttpRequestMessage(field == null ? HttpMethod.Get : HttpMethod.Post,
+        using var request = new HttpRequestMessage(form == null ? HttpMethod.Get : HttpMethod.Post,
             RemoteEndpoint.Normalize(endpoint) + path)
         { Version = HttpVersion.Version11, VersionPolicy = HttpVersionPolicy.RequestVersionExact };
         request.Headers.ConnectionClose = true;
         request.Headers.Accept.ParseAdd("application/json");
-        if (field != null) request.Content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>(field, value!) });
+        if (form != null) request.Content = new FormUrlEncodedContent(form);
         // One fresh HTTP/1.1 connection per request; no redirects or application retries.
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
-        if (response.StatusCode != HttpStatusCode.OK) throw new IOException("Device rejected request");
+        if (response.StatusCode != HttpStatusCode.OK && path != "/alarms") throw new IOException("Device rejected request");
         await using var stream = await response.Content.ReadAsStreamAsync(deadline.Token).ConfigureAwait(false);
         using var body = new MemoryStream();
         var buffer = new byte[256];
@@ -79,6 +87,9 @@ public sealed class RemoteApi : IRemoteApi, IDisposable
         }
         using var document = JsonDocument.Parse(body.ToArray());
         if (document.RootElement.ValueKind != JsonValueKind.Object) throw new IOException("Invalid JSON response");
+        if (response.StatusCode != HttpStatusCode.OK)
+            throw new IOException(document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String
+                ? error.GetString() : "Nie można odczytać budzika. Wymagane firmware 1.3.0 lub nowsze.");
         return document.RootElement.Clone();
     }
 

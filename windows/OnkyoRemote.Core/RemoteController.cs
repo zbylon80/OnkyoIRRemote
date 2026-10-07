@@ -67,6 +67,34 @@ public sealed class RemoteController(IRemoteApi api, string endpoint)
     public Task<bool> CommandAsync(string command) => BeginActionAsync(command, false, null);
     public Task<bool> CheckAsync(string? target = null) => BeginActionAsync("", true, target);
 
+    public Task<AlarmSnapshot> AlarmsAsync() => BeginAlarmAsync(null, null, null);
+    public Task<AlarmSnapshot> ChangeAlarmAsync(string action, string? time = null, string? source = null)
+        => BeginAlarmAsync(action, time, source);
+
+    private Task<AlarmSnapshot> BeginAlarmAsync(string? action, string? time, string? source)
+    {
+        lock (gate)
+        {
+            if (busy) throw new InvalidOperationException("Poczekaj na zakończenie polecenia.");
+            if (api is not IAlarmApi alarms) throw new InvalidOperationException("Obsługa budzika niedostępna.");
+            busy = true;
+            BusyChanged?.Invoke(true);
+            var task = RunAlarmAsync(alarms, endpoint, action, time, source);
+            active = task;
+            return task;
+        }
+    }
+
+    private async Task<AlarmSnapshot> RunAlarmAsync(IAlarmApi alarms, string target, string? action, string? time, string? source)
+    {
+        try
+        {
+            return action == null ? await alarms.AlarmsAsync(target).ConfigureAwait(false)
+                : await alarms.ChangeAlarmAsync(target, action, time, source).ConfigureAwait(false);
+        }
+        finally { EndAction(); }
+    }
+
     private Task<bool> BeginActionAsync(string command, bool check, string? target)
     {
         var checkEndpoint = target == null ? null : RemoteEndpoint.Normalize(target);

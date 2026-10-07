@@ -21,7 +21,13 @@ try {
     & .\gradlew.bat @tasks
     if ($LASTEXITCODE -ne 0) { throw "Android build failed: $LASTEXITCODE" }
     $packagePath = Join-Path $androidRoot 'app\build\outputs\apk\debug\app-debug.apk'
-    Write-Output "APK: $packagePath"
+    $versionMatch = [regex]::Match((Get-Content -LiteralPath (Join-Path $androidRoot 'app/build.gradle') -Raw), "versionName\s+'([^']+)'")
+    if (-not $versionMatch.Success) { throw 'Cannot read APK version.' }
+    $artifactDirectory = Join-Path $androidRoot 'artifacts'
+    New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+    $artifactPath = Join-Path $artifactDirectory ("OnkyoRemote-Android-" + $versionMatch.Groups[1].Value + '.apk')
+    Copy-Item -LiteralPath $packagePath -Destination $artifactPath
+    Write-Output "APK: $artifactPath"
 } finally {
     Pop-Location
 }

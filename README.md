@@ -22,7 +22,8 @@ and emits no IR. OTA and a pending wake source return HTTP 409. Wait about
 
 Off/wake settings are available at `/schedule`, linked from both remote
 panels and from the clock icon in the Windows/Android widget's top menu.
-The widget shortcut opens the same device panel in your browser.
+Widgets 0.4.0 open their own native alarm panel without a browser; all clients
+read and write the same settings on the ESP32 through `/alarms`.
 Choose a wake time/source and press **Ustaw**, or an off time and its **Ustaw**.
 Each action is independent and runs once: today if the chosen minute has not
 started, otherwise tomorrow. The panel confirms the date/time and offers cancel.

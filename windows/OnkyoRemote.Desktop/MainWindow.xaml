@@ -55,7 +55,7 @@
  <Border BorderBrush="#515151" BorderThickness="1" CornerRadius="12">
   <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#121212" Offset="0" /><GradientStop Color="#242424" Offset="0.5" /><GradientStop Color="#141414" Offset="1" /></LinearGradientBrush></Border.Background>
   <Grid Margin="12">
-   <Grid.RowDefinitions><RowDefinition Height="46" /><RowDefinition /><RowDefinition Height="56" /></Grid.RowDefinitions>
+   <Grid.RowDefinitions><RowDefinition Height="46" /><RowDefinition /><RowDefinition x:Name="FooterRow" Height="56" /></Grid.RowDefinitions>
    <Grid x:Name="Header" Background="Transparent" MouseLeftButtonDown="Header_Drag">
     <TextBlock Text="ONKYO" FontFamily="Georgia" FontSize="25" FontWeight="Bold" VerticalAlignment="Center" Margin="4,0" />
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
@@ -106,7 +106,8 @@
      <TextBlock x:Name="SettingsStatus" Foreground="#DCCAB0" TextWrapping="Wrap" FontSize="12" Margin="3,12,3,0" />
     </StackPanel>
    </Border>
-   <StackPanel Grid.Row="2" VerticalAlignment="Bottom" Margin="4,0,4,3">
+   <local:AlarmPanel x:Name="Alarms" Grid.Row="1" Visibility="Collapsed" />
+   <StackPanel x:Name="FooterStatus" Grid.Row="2" VerticalAlignment="Bottom" Margin="4,0,4,3">
     <TextBlock x:Name="StatusText" Text="Gotowy" Foreground="#BBB5AA" FontSize="11" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
     <TextBlock x:Name="InputModeText" Text="Kliknij lub przytrzymaj głośność · maks. 3 s" Foreground="#89847B" FontSize="10" Margin="0,7,0,0" />
    </StackPanel>

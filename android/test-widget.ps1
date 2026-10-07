@@ -18,6 +18,7 @@ Invoke-TestAdb @('shell', 'appwidget', 'grantbind', '--package', 'pl.onkyo.remot
 try {
     $output = Invoke-TestAdb @('shell', 'am', 'instrument', '-w', '-r', '-e', 'screenshot', '/sdcard/Android/data/pl.onkyo.remote/files/widget.png',
         '-e', 'smallScreenshot', '/sdcard/Android/data/pl.onkyo.remote/files/widget-small.png',
+        '-e', 'alarmScreenshot', '/sdcard/Android/data/pl.onkyo.remote/files/alarm.png',
         'pl.onkyo.remote.test/pl.onkyo.remote.WidgetSmokeTestRunner')
     $report = $output -join "`n"
     [IO.File]::WriteAllText((Join-Path $resultDirectory 'result.txt'), $report)
@@ -25,6 +26,7 @@ try {
     if ($report -notmatch 'PASS:' -or $report -notmatch 'INSTRUMENTATION_CODE: -1') { throw 'Widget smoke test failed.' }
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/widget.png', (Join-Path $resultDirectory 'widget.png'))
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/widget-small.png', (Join-Path $resultDirectory 'widget-small.png'))
+    Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/alarm.png', (Join-Path $resultDirectory 'alarm.png'))
 } finally {
     Invoke-TestAdb @('shell', 'appwidget', 'revokebind', '--package', 'pl.onkyo.remote', '--user', '0')
 }

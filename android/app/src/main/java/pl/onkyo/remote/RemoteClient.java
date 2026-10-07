@@ -31,6 +31,23 @@ final class RemoteClient {
         return request(endpoint, "/version", null);
     }
 
+    static String alarms(String endpoint, String action, String time, String source) throws IOException {
+        if (action == null) return request(endpoint, "/alarms", null);
+        if (!Arrays.asList("on", "off", "cancelOn", "cancelOff").contains(action))
+            throw new IllegalArgumentException("Nieznana akcja budzika.");
+        StringBuilder form = new StringBuilder("action=").append(action);
+        if (action.equals("on") || action.equals("off")) {
+            if (!AlarmSnapshot.validTime(time)) throw new IllegalArgumentException("Wybierz poprawną godzinę.");
+            form.append('&').append(action).append("Time=")
+                    .append(URLEncoder.encode(time, StandardCharsets.UTF_8.name()));
+            if (action.equals("on")) {
+                if (!Arrays.asList(AlarmSnapshot.SOURCES).contains(source)) throw new IllegalArgumentException("Wybierz źródło.");
+                form.append("&source=").append(URLEncoder.encode(source, StandardCharsets.UTF_8.name()));
+            }
+        }
+        return request(endpoint, "/alarms", form.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
     static String volume(String endpoint, String operation, String value) throws IOException {
         if (!Arrays.asList("press", "start", "keepalive", "stop").contains(operation)) {
             throw new IllegalArgumentException("Unknown volume operation");
@@ -64,8 +81,11 @@ final class RemoteClient {
                     out.write(body);
                 }
             }
-            if (connection.getResponseCode() != 200) throw new IOException("Device rejected request");
-            try (InputStream in = connection.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            int status = connection.getResponseCode();
+            if (status != 200 && !path.equals("/alarms")) throw new IOException("Device rejected request");
+            InputStream response = status == 200 ? connection.getInputStream() : connection.getErrorStream();
+            if (response == null) throw new IOException("Brak odpowiedzi ESP32.");
+            try (InputStream in = response; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
                 byte[] buffer = new byte[256];
                 int count;
                 while ((count = in.read(buffer)) != -1) {
@@ -74,7 +94,14 @@ final class RemoteClient {
                     }
                     out.write(buffer, 0, count);
                 }
-                return out.toString(StandardCharsets.UTF_8.name());
+                String result = out.toString(StandardCharsets.UTF_8.name());
+                if (status != 200) {
+                    String message = "Nie można odczytać budzika. Wymagane firmware 1.3.0 lub nowsze.";
+                    try { message = new org.json.JSONObject(result).optString("error", message); }
+                    catch (org.json.JSONException ignored) { }
+                    throw new IOException(message);
+                }
+                return result;
             }
         } finally {
             connection.disconnect();

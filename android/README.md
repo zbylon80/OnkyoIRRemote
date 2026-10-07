@@ -1,6 +1,6 @@
 # Widżet Onkyo na Androida
 
-Aplikacja 0.3.1 udostępnia natywny widżet ekranu głównego z przyciskami
+Aplikacja 0.4.1 udostępnia natywny widżet ekranu głównego z przyciskami
 panelu Basic. Wymaga Androida 8.0 lub nowszego. Ustawienia są po polsku,
 oznaczenia klawiszy odpowiadają panelowi WWW.
 
@@ -11,14 +11,21 @@ i bazowego dokumentu Remote Compose API 6 (nagłówek 0.3).
 
 ## Instalacja
 
-Ikona zegarka w górnym menu widżetu (**Budzik i wyłączenie**) otwiera w przeglądarce
-panel `/schedule` na ESP32 (jednorazowy budzik od firmware 1.3.0). Ustawienia
-wyłączenia i pobudki są wspólne z panelem WWW i Windows, zapisane i wykonywane
-przez ESP32. Po zapisie telefon może być wyłączony.
+Ikona zegarka w górnym menu widżetu (**Budzik i wyłączenie**) otwiera własny ekran
+aplikacji. Zegarek znajduje się po prawej na zielonym tle; szara zębatka ustawień
+jest po lewej stronie nagłówka. Oba przyciski mają obszar dotyku 48 × 48 dp.
+**Włącz**: godzina 00–23, minuty, źródło i **Ustaw**; **Wyłącz**: godzina,
+minuty i **Ustaw**. **×** anuluje wybraną akcję, a **← Widżet** zamyka panel.
+Ustawienia są wspólne ze stroną WWW i Windows (firmware 1.3.0 lub nowsze),
+zapisane i wykonywane przez ESP32. Po zapisie telefon może być wyłączony.
+**Odśwież** odczytuje zmiany z innych klientów. Po błędzie połączenia wymagany
+jest odczyt przed kolejnym zapisem; aplikacja nie ponawia zapisu automatycznie.
+Brak synchronizacji zegara blokuje nowe akcje, ale pozwala anulować istniejące.
 
-1. Przenieś `app/build/outputs/apk/debug/app-debug.apk` na telefon i otwórz plik.
+1. Przenieś `artifacts/OnkyoRemote-Android-0.4.1.apk` na telefon i otwórz plik.
    Jest to lokalny APK testowy podpisany kluczem debug tego komputera.
    Android może poprosić o zezwolenie na instalację z aplikacji otwierającej plik.
+   Przy aktualizacji istniejącej aplikacji wybierz **Aktualizuj**, bez odinstalowania.
 2. Otwórz **Pilot Onkyo**, wpisz adres ESP32 i wybierz **Sprawdź połączenie**.
    Domyślny adres tej instalacji to `http://192.168.1.46`.
 3. Wybierz **Dodaj widżet do ekranu głównego**. Można też przytrzymać puste
@@ -87,6 +94,8 @@ Skrypt korzysta z `JAVA_HOME` albo JDK dołączonego do Android Studio.
 `local.properties` tworzy z `ANDROID_HOME` albo SDK z `%LOCALAPPDATA%/Android/Sdk`.
 Lokalna konfiguracja i wyniki budowy są ignorowane przez Git.
 Po pobraniu zależności można użyć `-Offline`.
+Gotową paczkę z numerem wersji skrypt kopiuje do `artifacts/`; oryginał Gradle
+pozostaje w `app/build/outputs/apk/debug/app-debug.apk`.
 
 Na innych systemach skonfiguruj Android SDK oraz JDK i uruchom:
 
@@ -118,6 +127,10 @@ strony głośności, puszczenie przed odpowiedzią, anulowanie, limit 3 sekund,
 nieprawidłowy identyfikator sesji oraz brak keepalive po puszczeniu.
 Wyniki i zrzuty ekranu trafiają
 do `app/build/reports/widget-smoke/`.
+Test budzika klika zegarek widżetu i sprawdza otwarcie własnego ekranu,
+czytelność cyfr 24-godzinnych, niezależny zapis/anulowanie obu akcji,
+zachowanie roboczej godziny drugiej akcji oraz blokady NTP i błędów odczytu.
+Zrzut nowego panelu: `app/build/reports/widget-smoke/alarm.png`.
 
 Oddzielny pakiet testowy pozwala sprawdzić prawdziwy pulpit i uruchomienie
 pilota z zabitego/uśpionego procesu. Nie wchodzi w skład APK pilota:

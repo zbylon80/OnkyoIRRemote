@@ -38,6 +38,7 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
     private String endpoint;
     private String screenshotPath;
     private String smallScreenshotPath;
+    private String alarmScreenshotPath;
     private long touchDown;
     private long actionGeneration;
 
@@ -45,6 +46,7 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
         super.onCreate(args);
         screenshotPath = args.getString("screenshot");
         smallScreenshotPath = args.getString("smallScreenshot");
+        alarmScreenshotPath = args.getString("alarmScreenshot");
         start();
     }
 
@@ -128,9 +130,11 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
                     getUiAutomation().takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
                 }
             }
+            checkAlarms();
             result.putString("stream", "PASS: 11 Basic button mappings; minimum/resized layout; read-only check; "
                     + "concurrent tap dropped; HTTP/JSON errors; timeout and recovery; no retry; "
-                    + "hold/release both directions; release before acknowledgement; cancel; 3s cap; invalid session.\n");
+                    + "hold/release both directions; release before acknowledgement; cancel; 3s cap; invalid session; "
+                    + "native alarm panel; 24-hour selectors; independent Set/Cancel; preserved drafts; NTP/error guards; no alarm write retries.\n");
         } catch (Throwable failure) {
             result.putString("stream", "FAIL: " + android.util.Log.getStackTraceString(failure));
         } finally {
@@ -148,6 +152,77 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
             try { action.run(); } catch (Throwable error) { failure[0] = error; }
         });
         if (failure[0] != null) throw new AssertionError(failure[0]);
+    }
+
+    private static String alarmResponse(boolean enabled, boolean clockReady) {
+        return "{\"clockReady\":"+clockReady+",\"storageReady\":true,\"localTime\":\"2026-10-07 12:00:00\","+
+            "\"on\":{\"enabled\":"+enabled+",\"time\":\"23:59\",\"date\":\"2026-10-08\",\"source\":\"CD\"},"+
+            "\"off\":{\"enabled\":false,\"time\":\"02:00\",\"date\":\"\"}}";
+    }
+    private View find(View root, String value, boolean description) {
+        if(description?value.contentEquals(root.getContentDescription()==null?"":root.getContentDescription())
+            :root instanceof TextView&&value.contentEquals(((TextView)root).getText()))return root;
+        if(root instanceof android.view.ViewGroup){
+            android.view.ViewGroup group=(android.view.ViewGroup)root;
+            for(int i=0;i<group.getChildCount();i++){View match=find(group.getChildAt(i),value,description);if(match!=null)return match;}
+        }
+        return null;
+    }
+    private void awaitAlarmText(AlarmActivity panel,String value) throws Exception {
+        long end=System.currentTimeMillis()+6000;
+        while(System.currentTimeMillis()<end){
+            boolean[] found={false};ui(()->found[0]=find(panel.getWindow().getDecorView(),value,false)!=null);
+            if(found[0])return;Thread.sleep(20);
+        }
+        throw new AssertionError("Alarm panel did not show: "+value);
+    }
+    private void checkAlarms() throws Exception {
+        responseCode=200;delayMs=0;responseBody=alarmResponse(false,true);
+        ActivityMonitor monitor=addMonitor(AlarmActivity.class.getName(),null,false);
+        int before=requestCount();
+        ui(()->hostView.findViewById(R.id.schedule).performClick());
+        AlarmActivity panel=(AlarmActivity)waitForMonitorWithTimeout(monitor,5000);
+        removeMonitor(monitor);require(panel!=null,"Clock opened browser instead of native activity");
+        try{
+            awaitAlarmText(panel,"Nie ustawiono.");awaitRequests(before+1);
+            require(requestAt(before).equals("GET /alarms "),"Panel open wrote a schedule");
+            View root=panel.getWindow().getDecorView();
+            android.widget.Spinner hour=(android.widget.Spinner)find(root,"Godzina włączenia",true);
+            android.widget.Spinner minute=(android.widget.Spinner)find(root,"Minuty włączenia",true);
+            android.widget.Spinner offHour=(android.widget.Spinner)find(root,"Godzina wyłączenia",true);
+            android.widget.Spinner offMinute=(android.widget.Spinner)find(root,"Minuty wyłączenia",true);
+            require(hour.getCount()==24&&minute.getCount()==60,"Incorrect 24h selector range");
+            ui(()->{hour.setSelection(23);minute.setSelection(59);offHour.setSelection(0);offMinute.setSelection(30);});
+            responseBody=alarmResponse(true,true);before=requestCount();
+            ui(()->find(root,"Ustaw",false).performClick());awaitAlarmText(panel,"Ustawione. Możesz wrócić do widżetu.");
+            require(requestCount()==before+1&&requestAt(before).equals("POST /alarms action=on&onTime=23%3A59&source=CD"),"Native wake Set form");
+            require(offHour.getSelectedItemPosition()==0&&offMinute.getSelectedItemPosition()==30,"Wake save lost off draft");
+            ui(()->{
+                for(android.widget.Spinner selector:new android.widget.Spinner[]{hour,minute,offHour,offMinute}){
+                    TextView selected=(TextView)selector.getSelectedView();
+                    require(selected!=null&&selected.getWidth()-selected.getCompoundPaddingLeft()-selected.getCompoundPaddingRight()>=selected.getPaint().measureText(selected.getText().toString()),"Time digits clipped by native selector");
+                }
+            });
+            responseBody=alarmResponse(true,true).replace("\"off\":{\"enabled\":false,\"time\":\"02:00\",\"date\":\"\"}","\"off\":{\"enabled\":true,\"time\":\"00:30\",\"date\":\"2026-10-08\"}");
+            before=requestCount();ui(()->find(root,"Ustaw wyłączenie",true).performClick());awaitRequests(before+1);
+            awaitAlarmText(panel,"Ustawiono: 08.10 o 00:30.");
+            require(requestAt(before).equals("POST /alarms action=off&offTime=00%3A30"),"Native off Set form");
+            require(hour.getSelectedItemPosition()==23&&minute.getSelectedItemPosition()==59,"Off save changed wake draft");
+            if(alarmScreenshotPath!=null){waitForIdleSync();try(java.io.FileOutputStream out=new java.io.FileOutputStream(alarmScreenshotPath)){
+                getUiAutomation().takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);
+            }}
+            responseBody=alarmResponse(true,true);before=requestCount();ui(()->find(root,"Anuluj wyłączenie",true).performClick());
+            awaitAlarmText(panel,"Anulowano.");require(requestAt(before).equals("POST /alarms action=cancelOff"),"Independent off Cancel form");
+            responseBody=alarmResponse(true,false);ui(()->find(root,"Odśwież",false).performClick());
+            awaitAlarmText(panel,"Zegar ESP32 czeka na synchronizację.");
+            require(!find(root,"Ustaw",false).isEnabled()&&find(root,"Anuluj włączenie",true).isEnabled(),"NTP guards incorrect");
+            responseBody=alarmResponse(false,false);before=requestCount();ui(()->find(root,"Anuluj włączenie",true).performClick());
+            awaitAlarmText(panel,"Anulowano.");require(requestAt(before).equals("POST /alarms action=cancelOn"),"Cancel form");
+            responseCode=500;responseBody="{\"error\":\"test alarm error\"}";before=requestCount();
+            ui(()->find(root,"Odśwież",false).performClick());
+            awaitAlarmText(panel,"Nie można odczytać budzika. test alarm error Odśwież ustawienia.");
+            require(requestCount()==before+1&&!find(root,"Ustaw",false).isEnabled()&&find(root,"Odśwież",false).isEnabled(),"Unknown result retried or left writes enabled");
+        }finally{ui(panel::finish);responseCode=200;responseBody="{\"ok\":true}";}
     }
 
     private void validateAddresses() {

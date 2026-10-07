@@ -28,6 +28,7 @@ public partial class MainWindow : Window
         settings = store.Load();
         Controller = new RemoteController(api ?? (ownedApi = new RemoteApi()), settings.Endpoint);
         MediaKeys = new MediaKeyActions(Controller);
+        Alarms.Back += () => ShowAlarms(false);
         this.enableMediaKeys = enableMediaKeys;
         Width = settings.Width; Height = settings.Height;
         if (settings.Left is double left && settings.Top is double top && double.IsFinite(left) && double.IsFinite(top))
@@ -83,6 +84,7 @@ public partial class MainWindow : Window
         ScheduleButton.IsEnabled = !busy;
         CheckButton.IsEnabled = !busy;
         SaveButton.IsEnabled = !busy;
+        Alarms.UpdateEnabled();
     }
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
@@ -127,6 +129,7 @@ public partial class MainWindow : Window
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         var open = SettingsPanel.Visibility != Visibility.Visible;
+        ShowAlarms(false);
         SettingsPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
         RemoteKeys.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
         if (open) { EndpointInput.Text = Controller.Endpoint; SettingsStatus.Text = ""; EndpointInput.Focus(); }
@@ -142,16 +145,28 @@ public partial class MainWindow : Window
         catch (InvalidOperationException ex) { SettingsStatus.Text = ex.Message; }
     }
 
-    private void Schedule_Click(object sender, RoutedEventArgs e)
+    private async void Schedule_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var endpoint = RemoteEndpoint.Normalize(Controller.Endpoint);
             ReleaseVolume();
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(endpoint + "/schedule") { UseShellExecute = true });
+            if (Controller.IsBusy) await Controller.Completion;
+            SettingsPanel.Visibility = Visibility.Collapsed;
+            if (Alarms.Visibility == Visibility.Visible)
+            { ShowAlarms(false); return; }
+            ShowAlarms(true);
+            await Alarms.OpenAsync(Controller);
         }
         catch (ArgumentException ex) { SettingsStatus.Text = ex.Message; }
-        catch (Win32Exception) { SettingsStatus.Text = "Nie można otworzyć przeglądarki. Otwórz adres ESP32 z końcówką /schedule."; }
+        catch (InvalidOperationException ex) { StatusText.Text = ex.Message; }
+    }
+
+    private void ShowAlarms(bool open)
+    {
+        Alarms.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        RemoteKeys.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
+        FooterStatus.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
+        FooterRow.Height = new GridLength(open ? 0 : 56);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -212,7 +227,7 @@ public partial class MainWindow : Window
         MediaKeys.Dispose();
         ReleaseVolume();
         IsEnabled = false;
-        await Controller.Completion;
+        try { await Controller.Completion; } catch (Exception) { /* Alarm errors are shown by its panel; still close safely. */ }
         SaveSettings();
         ownedApi?.Dispose();
         allowClose = true;

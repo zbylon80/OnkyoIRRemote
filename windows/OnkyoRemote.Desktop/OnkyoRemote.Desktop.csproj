@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AssemblyName>OnkyoRemote.Windows</AssemblyName>
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
     <ApplicationIcon>Assets/remote.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
