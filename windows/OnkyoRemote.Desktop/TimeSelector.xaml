@@ -1,0 +1,70 @@
+<UserControl x:Class="OnkyoRemote.Desktop.TimeSelector"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <UserControl.Resources>
+  <Style TargetType="Button">
+   <Setter Property="Foreground" Value="#EEEAE2"/><Setter Property="Background" Value="#292929"/>
+   <Setter Property="BorderBrush" Value="#555555"/><Setter Property="Padding" Value="10,6"/>
+   <Setter Property="MinHeight" Value="34"/><Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border x:Name="Face" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="8">
+     <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#8CAE86"/></Trigger>
+     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#E9D7AB"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Face" Property="Background" Value="#3A4136"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Face" Property="Opacity" Value="0.45"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="TextBox">
+   <Setter Property="FontSize" Value="34"/><Setter Property="FontFamily" Value="Consolas"/>
+   <Setter Property="Foreground" Value="#EEEAE2"/><Setter Property="Background" Value="#151515"/>
+   <Setter Property="BorderBrush" Value="#8CAE86"/><Setter Property="BorderThickness" Value="0,0,0,2"/>
+   <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Setter Property="Height" Value="58"/><Setter Property="MaxLength" Value="2"/>
+   <Setter Property="Margin" Value="0,5"/>
+   <Setter Property="FocusVisualStyle" Value="{x:Null}"/><Setter Property="SelectionBrush" Value="#6C8764"/><Setter Property="CaretBrush" Value="#EEEAE2"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox">
+    <Border x:Name="InputFace" Background="{TemplateBinding Background}" BorderBrush="#555555" BorderThickness="0,0,0,2" CornerRadius="5,5,0,0">
+     <ScrollViewer x:Name="PART_ContentHost"/>
+    </Border>
+    <ControlTemplate.Triggers><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="InputFace" Property="BorderBrush" Value="#E9D7AB"/></Trigger></ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+ </UserControl.Resources>
+ <Grid>
+  <Button x:Name="TimeButton" Click="Open_Click" Padding="12,4" MinHeight="46" ToolTip="Zmień godzinę (format 24-godzinny)">
+   <StackPanel Orientation="Horizontal"><TextBlock x:Name="ValueText" FontSize="26" FontFamily="Consolas"/><Path Data="M 1,1 L 5,5 L 9,1" Stroke="#8CAE86" StrokeThickness="1.6" Margin="10,0,0,0" VerticalAlignment="Center"/></StackPanel>
+  </Button>
+  <Popup x:Name="Editor" PlacementTarget="{Binding ElementName=TimeButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True" Opened="Editor_Opened">
+   <Border Background="#202020" BorderBrush="#65655D" BorderThickness="1" CornerRadius="12" Padding="16" Width="236" Margin="0,5,0,0">
+    <StackPanel KeyboardNavigation.TabNavigation="Cycle" PreviewKeyDown="Editor_KeyDown">
+     <TextBlock x:Name="EditorTitle" Foreground="#EEEAE2" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap"/>
+     <TextBlock Text="Format 24-godzinny" Foreground="#BBB5AA" FontSize="11" Margin="0,4,0,14"/>
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="26"/><ColumnDefinition/></Grid.ColumnDefinitions>
+      <StackPanel>
+       <TextBlock Text="GODZINA" Foreground="#BBB5AA" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+       <Button x:Name="HourUp" Content="▲" Tag="hour:-1" Click="Step_Click" AutomationProperties.Name="Zmniejsz godzinę"/>
+       <TextBox x:Name="HourInput" AutomationProperties.Name="Godzina, od 00 do 23" GotKeyboardFocus="Input_Focus" PreviewMouseLeftButtonDown="Input_Mouse" PreviewTextInput="Input_Text" PreviewKeyDown="Input_Key" PreviewMouseWheel="Input_Wheel" Tag="hour"/>
+       <Button x:Name="HourDown" Content="▼" Tag="hour:1" Click="Step_Click" AutomationProperties.Name="Zwiększ godzinę"/>
+      </StackPanel>
+      <TextBlock Grid.Column="1" Text=":" FontSize="32" Foreground="#BBB5AA" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+      <StackPanel Grid.Column="2">
+       <TextBlock Text="MINUTA" Foreground="#BBB5AA" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+       <Button x:Name="MinuteUp" Content="▲" Tag="minute:-1" Click="Step_Click" AutomationProperties.Name="Zmniejsz minutę"/>
+       <TextBox x:Name="MinuteInput" AutomationProperties.Name="Minuta, od 00 do 59" GotKeyboardFocus="Input_Focus" PreviewMouseLeftButtonDown="Input_Mouse" PreviewTextInput="Input_Text" PreviewKeyDown="Input_Key" PreviewMouseWheel="Input_Wheel" Tag="minute"/>
+       <Button x:Name="MinuteDown" Content="▼" Tag="minute:1" Click="Step_Click" AutomationProperties.Name="Zwiększ minutę"/>
+      </StackPanel>
+     </Grid>
+     <TextBlock x:Name="ErrorText" Foreground="#E7AAA1" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,4"/>
+     <Grid Margin="0,6,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="8"/><ColumnDefinition/></Grid.ColumnDefinitions>
+      <Button x:Name="CancelButton" Content="Anuluj" Click="Cancel_Click"/><Button x:Name="DoneButton" Grid.Column="2" Content="Gotowe" Background="#465D40" BorderBrush="#8CAE86" Click="Done_Click"/>
+     </Grid>
+    </StackPanel>
+   </Border>
+  </Popup>
+ </Grid>
+</UserControl>

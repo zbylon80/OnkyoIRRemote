@@ -27,6 +27,8 @@ try {
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/widget.png', (Join-Path $resultDirectory 'widget.png'))
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/widget-small.png', (Join-Path $resultDirectory 'widget-small.png'))
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/alarm.png', (Join-Path $resultDirectory 'alarm.png'))
+    Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/time-editor.png', (Join-Path $resultDirectory 'time-editor.png'))
+    Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/source-picker.png', (Join-Path $resultDirectory 'source-picker.png'))
 } finally {
     Invoke-TestAdb @('shell', 'appwidget', 'revokebind', '--package', 'pl.onkyo.remote', '--user', '0')
 }

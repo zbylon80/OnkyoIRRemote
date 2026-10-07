@@ -2,6 +2,8 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -70,20 +72,63 @@ internal static class AlarmChecks
             ((Button)window.FindName("ScheduleButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => panel.IsVisible && Field<Button>("OnSet").IsEnabled);
             Assert(server.Requests.Single().Path == "/alarms" && !((FrameworkElement)window.FindName("RemoteKeys")).IsVisible, "Clock did not open native panel");
-            Field<ComboBox>("OnHour").SelectedItem = "23"; Field<ComboBox>("OnMinute").SelectedItem = "59";
-            Field<ComboBox>("OffHour").SelectedItem = "00"; Field<ComboBox>("OffMinute").SelectedItem = "30";
+            var onTime = Field<TimeSelector>("OnTime");
+            var offTime = Field<TimeSelector>("OffTime");
+            onTime.Time = "23:59"; offTime.Time = "00:30";
+            T TimeField<T>(string name) where T : FrameworkElement => (T)onTime.FindName(name);
+            void Click(string name) => TimeField<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var editor = TimeField<Popup>("Editor");
+            Click("TimeButton"); await Idle();
+            Assert(editor.IsOpen && TimeField<TextBox>("HourInput").Text == "23", "Editor did not open with current time");
+            Click("HourDown"); Click("MinuteDown");
+            Assert(TimeField<TextBox>("HourInput").Text == "00" && TimeField<TextBox>("MinuteInput").Text == "00", "24-hour controls did not wrap");
+            Click("HourUp"); Click("MinuteUp");
+            Assert(TimeField<TextBox>("HourInput").Text == "23" && TimeField<TextBox>("MinuteInput").Text == "59", "Reverse wrap failed");
+            TimeField<TextBox>("HourInput").Text = "24"; TimeField<TextBox>("MinuteInput").Text = "60";
+            Click("DoneButton");
+            Assert(editor.IsOpen && onTime.Time == "23:59" && TimeField<TextBlock>("ErrorText").Text.Length > 0, "Invalid time was committed");
+            TimeField<TextBox>("HourInput").Text = "0"; TimeField<TextBox>("MinuteInput").Text = "5";
+            Click("DoneButton"); Assert(!editor.IsOpen && onTime.Time == "00:05", "Keyboard draft not normalized");
+            Click("TimeButton"); await Idle(); Click("HourUp"); Click("CancelButton");
+            Assert(onTime.Time == "00:05", "Cancel changed committed time");
+            Click("TimeButton"); await Idle();
+            TimeField<TextBox>("HourInput").RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(TimeField<TextBox>("HourInput")), 0, Key.Escape) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            Assert(!editor.IsOpen && onTime.Time == "00:05", "Escape did not cancel editor");
+            Click("TimeButton"); await Idle(); onTime.IsEnabled = false;
+            Assert(!editor.IsOpen, "Disabled control left editor open"); onTime.IsEnabled = true;
+            Assert(server.Requests.Count == 1, "Editing the clock sent an HTTP request");
+            onTime.Time = "23:59";
             reply = Snapshot(on: true, onTime: "23:59"); server.Clear();
             Field<Button>("OnSet").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => Field<TextBlock>("ResultText").Text.StartsWith("Ustawione"));
-            Assert(Field<ComboBox>("OffHour").SelectedItem as string == "00" && Field<ComboBox>("OffMinute").SelectedItem as string == "30", "Wake save lost off draft");
+            Assert(offTime.Time == "00:30", "Wake save lost off draft");
             Assert(server.Requests.Single().Body == "action=on&onTime=23%3A59&source=CD", "Native Set form");
             foreach (var size in new[] { (300d, 550d, "alarm.png"), (280d, 520d, "alarm-small.png"), (400d, 700d, "alarm-large.png") })
             {
                 window.Width = size.Item1; window.Height = size.Item2; await Idle();
-                Assert(Field<ComboBox>("OnHour").ActualWidth >= 50 && Field<ComboBox>("OnMinute").ActualWidth >= 50, "Time selectors clipped");
+                Assert(onTime.ActualWidth >= 130 && Field<ComboBox>("Source").ActualWidth >= 130, "Alarm controls clipped");
                 var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(window);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using var file = File.Create(Path.Combine(output, size.Item3)); encoder.Save(file);
+            }
+            window.Width = 280; window.Height = 520; await Idle();
+            var scroll = Field<ScrollViewer>("PanelScroll");
+            var scrollBar = (ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
+            Assert(scrollBar.ActualWidth <= 8, $"System scrollbar remains: {scrollBar.ActualWidth}");
+            scroll.ScrollToBottom(); await Idle();
+            Assert(scroll.VerticalOffset > 0 && Field<Button>("RefreshButton").TransformToAncestor(scroll).Transform(new Point()).Y < scroll.ActualHeight, "Small panel footer cannot be reached");
+            scroll.ScrollToTop(); await Idle();
+            Click("TimeButton"); await Idle();
+            Save((FrameworkElement)editor.Child, "time-editor.png"); Click("CancelButton");
+            var source = Field<ComboBox>("Source"); source.IsDropDownOpen = true; await Idle();
+            var sourcePopup = (Popup)source.Template.FindName("PART_Popup", source);
+            Save((FrameworkElement)sourcePopup.Child, "source-picker.png"); source.IsDropDownOpen = false;
+            void Save(FrameworkElement view, string name)
+            {
+                view.UpdateLayout();
+                var image = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth), (int)Math.Ceiling(view.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+                image.Render(view); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
+                using var file = File.Create(Path.Combine(output, name)); encoder.Save(file);
             }
             reply = Snapshot(on: true, clock: false); server.Clear();
             Field<Button>("RefreshButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

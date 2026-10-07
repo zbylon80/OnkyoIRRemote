@@ -1,6 +1,6 @@
 # Widżet Onkyo na Androida
 
-Aplikacja 0.4.1 udostępnia natywny widżet ekranu głównego z przyciskami
+Aplikacja 0.4.2 udostępnia natywny widżet ekranu głównego z przyciskami
 panelu Basic. Wymaga Androida 8.0 lub nowszego. Ustawienia są po polsku,
 oznaczenia klawiszy odpowiadają panelowi WWW.
 
@@ -16,13 +16,17 @@ aplikacji. Zegarek znajduje się po prawej na zielonym tle; szara zębatka ustaw
 jest po lewej stronie nagłówka. Oba przyciski mają obszar dotyku 48 × 48 dp.
 **Włącz**: godzina 00–23, minuty, źródło i **Ustaw**; **Wyłącz**: godzina,
 minuty i **Ustaw**. **×** anuluje wybraną akcję, a **← Widżet** zamyka panel.
+Kliknij dużą godzinę, aby otworzyć ciemny edytor 24-godzinny. Strzałka w dół
+zwiększa liczbę, a w górę ją zmniejsza; cyfry można też wpisać. **Gotowe**
+zatwierdza wybór lokalnie, **Anuluj** / przycisk wstecz cofa edycję. Dopiero
+**Ustaw** zapisuje harmonogram. Źródło wybiera się z dopasowanego ciemnego panelu.
 Ustawienia są wspólne ze stroną WWW i Windows (firmware 1.3.0 lub nowsze),
 zapisane i wykonywane przez ESP32. Po zapisie telefon może być wyłączony.
 **Odśwież** odczytuje zmiany z innych klientów. Po błędzie połączenia wymagany
 jest odczyt przed kolejnym zapisem; aplikacja nie ponawia zapisu automatycznie.
 Brak synchronizacji zegara blokuje nowe akcje, ale pozwala anulować istniejące.
 
-1. Przenieś `artifacts/OnkyoRemote-Android-0.4.1.apk` na telefon i otwórz plik.
+1. Przenieś `artifacts/OnkyoRemote-Android-0.4.2.apk` na telefon i otwórz plik.
    Jest to lokalny APK testowy podpisany kluczem debug tego komputera.
    Android może poprosić o zezwolenie na instalację z aplikacji otwierającej plik.
    Przy aktualizacji istniejącej aplikacji wybierz **Aktualizuj**, bez odinstalowania.

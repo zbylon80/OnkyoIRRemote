@@ -252,6 +252,8 @@ internal static class Program
             await window.Controller.Completion;
             Assert(server.Requests.Last().Path == "/volume/stop", "Minimizing did not stop hold");
             window.WindowState = WindowState.Normal;
+            window.Activate();
+            await window.Dispatcher.InvokeAsync(() => window.UpdateLayout(), DispatcherPriority.ApplicationIdle);
             await Task.Delay(100);
             Mouse(down, UIElement.PreviewMouseLeftButtonDownEvent);
             await Until(() => server.Requests.Any(r => r.Path == "/volume/press" && r.Body == "direction=down"));

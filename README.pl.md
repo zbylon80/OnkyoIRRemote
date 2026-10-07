@@ -19,6 +19,10 @@ i zapisują ten sam harmonogram ESP32. Podpowiedź ikony: **Budzik i wyłączeni
 
 Panel ma tylko dwie niezależne opcje: **Włącz** — godzina, źródło i **Ustaw**,
 oraz **Wyłącz** — godzina i **Ustaw**. Możesz ustawić jedną akcję lub obie.
+Widżety 0.4.2 i firmware 1.3.2 mają spójny, ciemny wybór czasu i źródła.
+Kliknięcie dużej godziny otwiera edytor 24-godzinny. W dół przechodzisz do
+następnej liczby, w górę do poprzedniej; cyfry można też wpisać.
+**Gotowe** zatwierdza wybór lokalnie, a **Ustaw** zapisuje harmonogram na ESP32.
 Każda działa jeden raz: dziś, jeśli wybrana minuta jeszcze się nie rozpoczęła,
 albo jutro. Pod przyciskiem pojawia się docelowa data i godzina oraz **×** do
 anulowania. Domyślnie żadna akcja nie jest zaplanowana; godziny to 07:00 i 02:00.

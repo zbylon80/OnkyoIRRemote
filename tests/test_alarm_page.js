@@ -3,23 +3,33 @@ const html=fs.readFileSync(path.join(__dirname,'../firmware/OnkyoRemote/AlarmPag
 const source=html.match(/<script>([\s\S]*?)<\/script>/)[1];
 assert.ok(!html.includes('type="checkbox"')&&!html.includes('Codziennie'));
 assert.ok(!html.includes('type="time"'));
+assert.ok(!html.includes('<select'));
 const fields=new Map(),requests=[],timers=new Map();let timerId=0;
-function field(id){if(!fields.has(id))fields.set(id,{disabled:false,value:'',hidden:false,textContent:'',options:[],handlers:{},add(option){this.options.push(option);},addEventListener(name,fn){this.handlers[name]=fn;}});return fields.get(id);}
+function field(id){if(!fields.has(id))fields.set(id,{disabled:false,value:'',hidden:false,textContent:'',open:false,attributes:{},handlers:{},setAttribute(name,value){this.attributes[name]=value;},showModal(){this.open=true;},close(){this.open=false;},select(){},addEventListener(name,fn){this.handlers[name]=fn;}});return fields.get(id);}
+const document={getElementById:field,activeElement:null};
 const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
-vm.runInNewContext(source,{document:{getElementById:field},AbortController,URLSearchParams,Option:class{constructor(text,value){this.text=text;this.value=value;}},
+vm.runInNewContext(source,{document,AbortController,URLSearchParams,
   setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},
   fetch(url,options){assert.equal(url,'/alarms');return new Promise((resolve,reject)=>{options.signal.addEventListener('abort',()=>reject(Error('timeout')));requests.push({options,reject,finish(data,ok=true){resolve({ok,json:async()=>data});}});});}
 });
 const snapshot={clockReady:true,storageReady:true,localTime:'2026-10-07 12:00:00',off:{enabled:false,time:'02:00',date:''},on:{enabled:false,time:'07:00',date:'',source:'TUNER'}};
 const submit=id=>field(id+'-form').handlers.submit({preventDefault(){}}),refresh=()=>field('refresh').handlers.click();
 const body=index=>Object.fromEntries(new URLSearchParams(requests[index].options.body));
+const click=id=>field(id).handlers.click();
 (async()=>{
-  for(const id of ['on','off']){
-    assert.equal(field(id+'-hour').options.length,24);assert.equal(field(id+'-hour').options[0].value,'00');assert.equal(field(id+'-hour').options[23].value,'23');
-    assert.equal(field(id+'-minute').options.length,60);assert.equal(field(id+'-minute').options[0].value,'00');assert.equal(field(id+'-minute').options[59].value,'59');
-  }
   assert.equal(requests.length,1);assert.equal(requests[0].options.method,'GET');submit('on');assert.equal(requests.length,1);
   requests[0].finish(snapshot);await flush();assert.equal(field('on-set').disabled,false);assert.equal(field('on-cancel').hidden,true);
+  click('on-time');assert.equal(field('time-dialog').open,true);
+  field('time-hour').value='23';field('time-minute').value='59';click('time-hour-down');click('time-minute-down');
+  assert.equal(field('time-hour').value,'00');assert.equal(field('time-minute').value,'00');click('time-hour-up');click('time-minute-up');
+  assert.equal(field('time-hour').value,'23');assert.equal(field('time-minute').value,'59');
+  field('time-hour').value='24';field('time-minute').value='60';click('time-done');assert.equal(field('time-dialog').open,true);assert.equal(field('on-time').textContent,'07:00');
+  field('time-hour').value='4';field('time-minute').value='5';click('time-done');assert.equal(field('on-time').textContent,'04:05');assert.equal(field('time-dialog').open,false);
+  click('on-time');click('time-hour-down');click('time-cancel');assert.equal(field('on-time').textContent,'04:05');
+  click('off-time');field('time-minute').handlers.keydown({key:'ArrowDown',preventDefault(){}});assert.equal(field('time-minute').value,'01');
+  document.activeElement=field('time-minute');field('time-minute').handlers.wheel({deltaY:1,preventDefault(){}});assert.equal(field('time-minute').value,'02');click('time-cancel');
+  assert.equal(field('off-time').textContent,'02:00');click('source-button');click('source-PHONO');assert.equal(field('source').value,'PHONO');assert.equal(field('source-dialog').open,false);
+  assert.equal(requests.length,1,'Local time/source editing must not write a schedule');
   field('on-hour').value='23';field('on-minute').value='59';field('source').value='CD';field('off-hour').value='00';field('off-minute').value='00';
   submit('on');submit('off');assert.equal(requests.length,2);
   assert.deepEqual(body(1),{action:'on',onTime:'23:59',source:'CD'});

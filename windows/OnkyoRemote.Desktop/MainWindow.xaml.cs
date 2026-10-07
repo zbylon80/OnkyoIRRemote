@@ -207,7 +207,7 @@ public partial class MainWindow : Window
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape) { ReleaseVolume(); e.Handled = true; }
+        if (e.Key == Key.Escape) { Alarms.DismissEditors(); ReleaseVolume(); e.Handled = true; }
     }
 
     public void ReleaseVolume()

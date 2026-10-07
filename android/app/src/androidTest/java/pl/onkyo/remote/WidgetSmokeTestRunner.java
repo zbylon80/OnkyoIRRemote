@@ -187,27 +187,31 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
             awaitAlarmText(panel,"Nie ustawiono.");awaitRequests(before+1);
             require(requestAt(before).equals("GET /alarms "),"Panel open wrote a schedule");
             View root=panel.getWindow().getDecorView();
-            android.widget.Spinner hour=(android.widget.Spinner)find(root,"Godzina włączenia",true);
-            android.widget.Spinner minute=(android.widget.Spinner)find(root,"Minuty włączenia",true);
-            android.widget.Spinner offHour=(android.widget.Spinner)find(root,"Godzina wyłączenia",true);
-            android.widget.Spinner offMinute=(android.widget.Spinner)find(root,"Minuty wyłączenia",true);
-            require(hour.getCount()==24&&minute.getCount()==60,"Incorrect 24h selector range");
-            ui(()->{hour.setSelection(23);minute.setSelection(59);offHour.setSelection(0);offMinute.setSelection(30);});
+            AlarmTimeButton onTime=(AlarmTimeButton)find(root,"Godzina włączenia: 23:59",true);
+            AlarmTimeButton offTime=(AlarmTimeButton)find(root,"Godzina wyłączenia: 02:00",true);
+            require(onTime!=null&&offTime!=null,"Custom time controls missing");
+            checkTimeEditor(onTime);
+            AlarmSourceButton source=(AlarmSourceButton)find(root,"Źródło pobudki: CD",true);
+            int beforePicker=requestCount();ui(source::performClick);
+            View sourceRoot=dialogRoot(source);
+            if(alarmScreenshotPath!=null) screenshot(alarmScreenshotPath.replace("alarm.png","source-picker.png"));
+            ui(()->find(sourceRoot,"Wybierz źródło PHONO",true).performClick());require(source.getValue().equals("PHONO"),"Source picker selection");
+            ui(()->{source.setValue("CD");onTime.setTime("23:59");offTime.setTime("00:30");});
+            require(requestCount()==beforePicker,"Source picker wrote a schedule");
             responseBody=alarmResponse(true,true);before=requestCount();
             ui(()->find(root,"Ustaw",false).performClick());awaitAlarmText(panel,"Ustawione. Możesz wrócić do widżetu.");
             require(requestCount()==before+1&&requestAt(before).equals("POST /alarms action=on&onTime=23%3A59&source=CD"),"Native wake Set form");
-            require(offHour.getSelectedItemPosition()==0&&offMinute.getSelectedItemPosition()==30,"Wake save lost off draft");
+            require(offTime.getTime().equals("00:30"),"Wake save lost off draft");
             ui(()->{
-                for(android.widget.Spinner selector:new android.widget.Spinner[]{hour,minute,offHour,offMinute}){
-                    TextView selected=(TextView)selector.getSelectedView();
-                    require(selected!=null&&selected.getWidth()-selected.getCompoundPaddingLeft()-selected.getCompoundPaddingRight()>=selected.getPaint().measureText(selected.getText().toString()),"Time digits clipped by native selector");
+                for(AlarmTimeButton selector:new AlarmTimeButton[]{onTime,offTime}){
+                    require(selector.getWidth()-selector.getCompoundPaddingLeft()-selector.getCompoundPaddingRight()>=selector.getPaint().measureText(selector.getText().toString()),"Time digits clipped");
                 }
             });
             responseBody=alarmResponse(true,true).replace("\"off\":{\"enabled\":false,\"time\":\"02:00\",\"date\":\"\"}","\"off\":{\"enabled\":true,\"time\":\"00:30\",\"date\":\"2026-10-08\"}");
             before=requestCount();ui(()->find(root,"Ustaw wyłączenie",true).performClick());awaitRequests(before+1);
             awaitAlarmText(panel,"Ustawiono: 08.10 o 00:30.");
             require(requestAt(before).equals("POST /alarms action=off&offTime=00%3A30"),"Native off Set form");
-            require(hour.getSelectedItemPosition()==23&&minute.getSelectedItemPosition()==59,"Off save changed wake draft");
+            require(onTime.getTime().equals("23:59"),"Off save changed wake draft");
             if(alarmScreenshotPath!=null){waitForIdleSync();try(java.io.FileOutputStream out=new java.io.FileOutputStream(alarmScreenshotPath)){
                 getUiAutomation().takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);
             }}
@@ -222,7 +226,60 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
             ui(()->find(root,"Odśwież",false).performClick());
             awaitAlarmText(panel,"Nie można odczytać budzika. test alarm error Odśwież ustawienia.");
             require(requestCount()==before+1&&!find(root,"Ustaw",false).isEnabled()&&find(root,"Odśwież",false).isEnabled(),"Unknown result retried or left writes enabled");
+            responseCode=200;responseBody=alarmResponse(false,true);ui(()->find(root,"Odśwież",false).performClick());awaitAlarmText(panel,"Nie ustawiono.");
+            checkAlarmRecreation(panel);
         }finally{ui(panel::finish);responseCode=200;responseBody="{\"ok\":true}";}
+    }
+
+    private View dialogRoot(Object picker) throws Exception {
+        java.lang.reflect.Field field=picker.getClass().getDeclaredField("editor");field.setAccessible(true);
+        android.app.Dialog dialog=(android.app.Dialog)field.get(picker);require(dialog!=null&&dialog.isShowing(),"Picker dialog not shown");
+        return dialog.getWindow().getDecorView();
+    }
+    private void checkAlarmRecreation(AlarmActivity panel) throws Exception {
+        View root=panel.getWindow().getDecorView();
+        AlarmTimeButton on=(AlarmTimeButton)find(root,"Godzina włączenia: 23:59",true);
+        AlarmTimeButton off=(AlarmTimeButton)find(root,"Godzina wyłączenia: 02:00",true);
+        AlarmSourceButton source=(AlarmSourceButton)find(root,"Źródło pobudki: CD",true);
+        long readyDeadline=System.currentTimeMillis()+6000;
+        while(System.currentTimeMillis()<readyDeadline){boolean[] ready={false};ui(()->ready[0]=on.isEnabled());if(ready[0])break;Thread.sleep(20);}
+        require(on.isEnabled(),"Refresh did not finish before recreation check");
+        ui(()->{on.setTime("07:45");off.setTime("02:10");source.setValue("PHONO");on.performClick();});
+        View draft=dialogRoot(on);ui(()->{((android.widget.EditText)find(draft,"Godzina, od 00 do 23",true)).setText("8");((android.widget.EditText)find(draft,"Minuta, od 00 do 59",true)).setText("3");});
+        ActivityMonitor monitor=addMonitor(AlarmActivity.class.getName(),null,false);int before=requestCount();ui(panel::recreate);
+        AlarmActivity restored=(AlarmActivity)waitForMonitorWithTimeout(monitor,5000);removeMonitor(monitor);require(restored!=null,"Activity was not recreated");
+        try{
+            awaitAlarmText(restored,"Nie ustawiono.");waitForIdleSync();View restoredRoot=restored.getWindow().getDecorView();
+            AlarmTimeButton restoredOn=(AlarmTimeButton)find(restoredRoot,"Godzina włączenia: 07:45",true);
+            require(restoredOn!=null&&find(restoredRoot,"Godzina wyłączenia: 02:10",true)!=null&&find(restoredRoot,"Źródło pobudki: PHONO",true)!=null,"Recreation lost alarm drafts");
+            View restoredEditor=dialogRoot(restoredOn);
+            require(((android.widget.EditText)find(restoredEditor,"Godzina, od 00 do 23",true)).getText().toString().equals("8")&&((android.widget.EditText)find(restoredEditor,"Minuta, od 00 do 59",true)).getText().toString().equals("3"),"Recreation lost open editor input");
+            ui(()->find(restoredEditor,"Anuluj",false).performClick());require(restoredOn.getTime().equals("07:45"),"Recreated editor Cancel changed time");
+            awaitRequests(before+1);require(requestCount()==before+1&&requestAt(before).equals("GET /alarms "),"Recreation wrote a schedule");
+        }finally{ui(restored::finish);}
+    }
+    private void screenshot(String path) throws Exception {
+        waitForIdleSync();Thread.sleep(150);
+        try(java.io.FileOutputStream output=new java.io.FileOutputStream(path)){
+            getUiAutomation().takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG,100,output);
+        }
+    }
+    private void checkTimeEditor(AlarmTimeButton time) throws Exception {
+        int before=requestCount();ui(time::performClick);View root=dialogRoot(time);
+        android.widget.EditText hour=(android.widget.EditText)find(root,"Godzina, od 00 do 23",true);
+        android.widget.EditText minute=(android.widget.EditText)find(root,"Minuta, od 00 do 59",true);
+        ui(()->{find(root,"Zwiększ godzinę",true).performClick();find(root,"Zwiększ minutę",true).performClick();});
+        require(hour.getText().toString().equals("00")&&minute.getText().toString().equals("00"),"Down arrows must advance and wrap");
+        ui(()->{find(root,"Zmniejsz godzinę",true).performClick();find(root,"Zmniejsz minutę",true).performClick();hour.setText("24");minute.setText("60");find(root,"Gotowe",false).performClick();});
+        require(time.getTime().equals("23:59")&&find(root,"Wpisz godzinę 00–23 i minuty 00–59.",false)!=null,"Invalid time committed");
+        ui(()->{hour.setText("4");minute.setText("5");find(root,"Gotowe",false).performClick();});
+        require(time.getTime().equals("04:05"),"Typed digits not normalized");
+        ui(time::performClick);View cancelRoot=dialogRoot(time);
+        ui(()->{find(cancelRoot,"Zwiększ godzinę",true).performClick();find(cancelRoot,"Anuluj",false).performClick();});
+        require(time.getTime().equals("04:05"),"Cancel changed local time");
+        ui(()->{time.setTime("07:00");time.performClick();});
+        if(alarmScreenshotPath!=null)screenshot(alarmScreenshotPath.replace("alarm.png","time-editor.png"));
+        ui(time::dismissEditor);require(requestCount()==before,"Editing time sent an HTTP request");
     }
 
     private void validateAddresses() {

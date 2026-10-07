@@ -3,6 +3,47 @@
 Firmware versions use `MAJOR.MINOR.PATCH`. Entries marked **Unreleased** describe
 prepared changes; they do not mean that a device has been updated.
 
+## Android 0.4.2 — 2026-10-08
+
+- Match the Windows dark time editor and source picker. Show large HH:mm
+  buttons; support typed digits and down/up step buttons with wraparound.
+  Keep local confirmation/cancellation separate from Set on the ESP32.
+- Preserve both alarm drafts, the selected source and open time-editor input
+  across activity recreation. Keep storage/NTP/error guards and no write retries.
+- Built the versioned APK and passed lint and emulator tests, including time
+  validation, down/up wraparound, source selection, local Cancel, independent
+  Set/Cancel and restoring an open editor after activity recreation. Inspected
+  panel and picker screenshots. Phone installation remains a package update.
+
+## 1.3.2 — 2026-10-08
+
+- Replace browser-native time/source lists with matching dark pickers and large
+  24-hour HH:mm buttons. Down advances digits, up decrements them; support
+  direct typing, arrow keys and focused-field mouse-wheel changes.
+- Validate local edits, dismiss with Cancel/Escape, and write only with Set.
+  Keep the existing one-shot scheduler, stored settings and safety behavior.
+- Passed host/browser tests and 320 px browser inspection, compiled and
+  successfully uploaded by OTA. Verified HTTP 200, running version 1.3.2,
+  synchronized clock and unchanged stored schedules.
+
+## Windows 0.4.2 — 2026-10-08
+
+- Make the time editor follow scrolling order: down advances the number and
+  up goes to the preceding number. Apply the same direction to step buttons,
+  arrow keys and the mouse wheel, with wraparound at 23/59 retained.
+
+## Windows 0.4.1 — 2026-10-08
+
+- Replace native hour/minute dropdowns with a large HH:mm button and a dark
+  time editor. Support direct typing, step buttons, arrow keys and focused-field
+  mouse-wheel changes; retain 24-hour validation and independent alarm drafts.
+- Give source selection, its dropdown, text selection, focus and scrollbars a
+  matching dark appearance. Keep editing separate from the ESP32 Set action;
+  Cancel/Escape dismiss local changes without writing an alarm.
+- Passed Windows protocol/WPF/media-key checks, clock-editing validation and
+  cancellation checks, and small-panel scrolling. Inspected panel and popup
+  previews, and prepared the portable EXE/ZIP.
+
 ## Android 0.4.1 — 2026-10-07
 
 - Separate settings and alarm shortcuts across the widget header: a smaller

@@ -13,10 +13,9 @@ public partial class AlarmPanel : UserControl
     public AlarmPanel()
     {
         InitializeComponent();
-        foreach (var box in new[] { OnHour, OffHour }) box.ItemsSource = Enumerable.Range(0, 24).Select(i => i.ToString("00"));
-        foreach (var box in new[] { OnMinute, OffMinute }) box.ItemsSource = Enumerable.Range(0, 60).Select(i => i.ToString("00"));
         Source.ItemsSource = AlarmSnapshot.Sources;
         SetTime(true, "07:00"); SetTime(false, "02:00"); Source.SelectedItem = "TUNER";
+        IsVisibleChanged += (_, _) => { if (!IsVisible) DismissEditors(); };
         UpdateEnabled();
     }
 
@@ -29,16 +28,18 @@ public partial class AlarmPanel : UserControl
     public void UpdateEnabled()
     {
         var available = !busy && controller?.IsBusy != true;
-        foreach (var box in new[] { OnHour, OnMinute, OffHour, OffMinute, Source }) box.IsEnabled = available && loaded && storageReady;
+        OnTime.IsEnabled = OffTime.IsEnabled = Source.IsEnabled = available && loaded && storageReady;
         OnSet.IsEnabled = OffSet.IsEnabled = available && loaded && storageReady && clockReady;
         OnCancel.IsEnabled = OffCancel.IsEnabled = available && loaded && storageReady;
         RefreshButton.IsEnabled = BackButton.IsEnabled = available;
     }
 
+    public void DismissEditors()
+    { OnTime.DismissEditor(); OffTime.DismissEditor(); Source.IsDropDownOpen = false; }
+
     private void SetTime(bool on, string time)
     {
-        (on ? OnHour : OffHour).SelectedItem = time[..2];
-        (on ? OnMinute : OffMinute).SelectedItem = time[3..];
+        (on ? OnTime : OffTime).Time = time;
     }
 
     private void Display(AlarmSnapshot snapshot, string replace)
@@ -64,7 +65,7 @@ public partial class AlarmPanel : UserControl
         try
         {
             var on = action is "on" or "cancelOn";
-            var time = (on ? OnHour : OffHour).SelectedItem + ":" + (on ? OnMinute : OffMinute).SelectedItem;
+            var time = (on ? OnTime : OffTime).Time;
             var snapshot = action == null ? await controller.AlarmsAsync()
                 : await controller.ChangeAlarmAsync(action, time, Source.SelectedItem as string);
             Display(snapshot, action == null ? "all" : on ? "on" : "off");

@@ -1,12 +1,16 @@
 # Widżet Onkyo na Windows
 
-Natywna aplikacja 0.4.0 z małym oknem na pulpicie. Odtwarza panel Basic:
+Natywna aplikacja 0.4.2 z małym oknem na pulpicie. Odtwarza panel Basic:
 POWER, VOL−/VOL+, MUTE, TAPE-1, CD, PHONO, TUNER, VIDEO-1 oraz poprzednia
 i następna stacja. Nie zawiera panelu Advanced.
 
 Ikona zegarka w górnym menu (podpowiedź **Budzik i wyłączenie**) otwiera własny
 panel w oknie widżetu. **Włącz**: godzina 00–23, minuty, źródło i **Ustaw**;
-**Wyłącz**: godzina, minuty i **Ustaw**. Każda akcja wykona się raz; zapisany termin
+**Wyłącz**: godzina, minuty i **Ustaw**. Kliknij dużą godzinę, aby otworzyć
+ciemny edytor 24-godzinny. Cyfry można wpisać, zmieniać strzałkami lub
+kółkiem myszy przy aktywnym polu; **Gotowe** zatwierdza tylko wybór czasu,
+**Anuluj** / Esc go cofa. Dopiero **Ustaw** zapisuje harmonogram.
+Każda akcja wykona się raz; zapisany termin
 potwierdza ESP32, a **×** anuluje wybraną akcję. **← Pilot** wraca do przycisków.
 Ustawienia są wspólne ze stroną WWW i Androidem (firmware 1.3.0 lub nowsze).
 Harmonogram zapisuje i wykonuje ESP32, więc aplikację Windows można zamknąć.
@@ -16,7 +20,7 @@ zegara blokuje ustawianie nowych akcji, ale pozwala anulować już zapisane.
 
 ## Uruchomienie
 
-1. Rozpakuj `OnkyoRemote-Windows-0.4.0-x64.zip` do wybranego folderu.
+1. Rozpakuj `OnkyoRemote-Windows-0.4.2-x64.zip` do wybranego folderu.
 2. Uruchom `OnkyoRemote.Windows.exe`. Wersja przenośna zawiera .NET i nie
    wymaga instalacji środowiska ani uprawnień administratora. Jest przeznaczona
    dla Windows 10/11 x64. EXE nie jest podpisany certyfikatem wydawcy.
@@ -104,7 +108,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File windows/build.ps1 -Portable
 Zwykła kompilacja tworzy aplikację korzystającą z zainstalowanego .NET Desktop
 Runtime 10 w `OnkyoRemote.Desktop/bin/Release/net10.0-windows/`.
 `-Portable` pobiera pakiety środowiska dla `win-x64`, tworzy samodzielny EXE
-w `artifacts/portable-0.4.0/` oraz ZIP w `artifacts/`. Pierwsza publikacja wymaga
+w `artifacts/portable-0.4.2/` oraz ZIP w `artifacts/`. Pierwsza publikacja wymaga
 dostępu do NuGet. Narzędzia lokalne i wyniki budowania są ignorowane przez Git.
 
 `-Test` uruchamia własny runner bez pakietów testowych. Lokalna atrapa ESP32
