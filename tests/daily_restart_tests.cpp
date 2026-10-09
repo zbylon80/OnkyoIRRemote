@@ -10,6 +10,7 @@
 #include <cstdio>
 #include "VolumeHoldSafety.h"
 #include "DeviceDiagnostics.h"
+#include "WiFiRecovery.h"
 #include "DailyRestart.h"
 #include "AlarmScheduler.h"
 #include "FirmwareVersion.h"
@@ -46,6 +47,7 @@ struct FakeStorage {
 struct FakeSerial {
   void print(const char *) {}
   void println(const char *) { events.push_back("log"); }
+  void println(int) { events.push_back("log"); }
   template<typename... Args> void printf(const char *, Args...) { events.push_back("log"); }
   void flush() { events.push_back("flush"); }
 } Serial;
@@ -55,10 +57,21 @@ struct FakeESP {
   uint32_t getMinFreeHeap() { return 160000; }
   uint32_t getMaxAllocHeap() { return 100000; }
 } ESP;
-constexpr int WL_CONNECTED = 3, WIFI_PS_NONE = 0;
+constexpr int WL_CONNECTED = 3, WIFI_PS_NONE = 0, WIFI_STA = 1;
+const char *WIFI_SSID = "test", *WIFI_PASSWORD = "test";
 struct FakeWiFi {
   bool connected = true;
   int sleep = 0;
+  int retries = 0, radioStops = 0, begins = 0;
+  template<typename T> void onEvent(T) {}
+  void mode(int) {}
+  void setHostname(const char *) {}
+  void setAutoReconnect(bool) {}
+  bool setSleep(bool value) { sleep = value; return true; }
+  void begin(const char *, const char *) { ++begins; }
+  void reconnect() { ++retries; }
+  void disconnect(bool radioOff, bool erase) { assert(radioOff && !erase); ++radioStops; }
+  int localIP() { return 0; }
   int status() { return connected ? WL_CONNECTED : 6; }
   int RSSI() { return -64; }
   int getSleep() { return sleep; }
@@ -70,10 +83,27 @@ enum esp_reset_reason_t { ESP_RST_UNKNOWN, ESP_RST_POWERON, ESP_RST_EXT, ESP_RST
   ESP_RST_INT_WDT, ESP_RST_TASK_WDT, ESP_RST_WDT, ESP_RST_DEEPSLEEP, ESP_RST_BROWNOUT, ESP_RST_SDIO };
 esp_reset_reason_t esp_reset_reason() { return ESP_RST_SW; }
 DeviceDiagnostics deviceDiagnostics;
+WiFiRecovery wifiRecovery;
+bool loopWatchdogReady = false, networkServicesStarted = false;
+using esp_err_t = int;
+constexpr int ESP_OK = 0, ESP_ERR_INVALID_STATE = 1;
+struct esp_task_wdt_config_t { uint32_t timeout_ms = 0, idle_core_mask = 0; bool trigger_panic = false; };
+int watchdogReconfigureResult = ESP_OK, watchdogAddResult = ESP_OK;
+int watchdogFeeds = 0, watchdogInits = 0;
+esp_task_wdt_config_t watchdogConfig;
+int esp_task_wdt_reconfigure(const esp_task_wdt_config_t *config) {
+  watchdogConfig = *config; return watchdogReconfigureResult;
+}
+int esp_task_wdt_init(const esp_task_wdt_config_t *config) { ++watchdogInits; watchdogConfig = *config; return ESP_OK; }
+int esp_task_wdt_add(void *task) { assert(task == nullptr); return watchdogAddResult; }
+void esp_task_wdt_reset() { ++watchdogFeeds; }
 constexpr int IR_SEND_PIN = 26, LOW = 0;
 void digitalWrite(int, int) { events.push_back("low"); }
 using String = std::string;
 struct FakeServer {
+  int starts = 0, stops = 0;
+  void begin() { ++starts; }
+  void stop() { ++stops; }
   std::map<std::string, std::string> args;
   int status = 0;
   std::string body;
@@ -88,16 +118,20 @@ const char *INDEX_PAGE = "", *PWA_MANIFEST = "", *PWA_ICON = "", *DIAGNOSTICS_PA
 using ota_error_t = int;
 const char *OTA_HOSTNAME = "test", *OTA_PASSWORD = "test";
 struct FakeOTA {
+  int starts = 0, stops = 0;
   uint32_t receiveTimeoutMs = 0;
   std::function<void()> started, ended;
   std::function<void(ota_error_t)> failed;
+  std::function<void(unsigned int, unsigned int)> progressed;
   void setHostname(const char *) {}
   void setPassword(const char *) {}
   void setTimeout(uint32_t value) { receiveTimeoutMs = value; }
   void onStart(std::function<void()> fn) { started = fn; }
   void onEnd(std::function<void()> fn) { ended = fn; }
   void onError(std::function<void(ota_error_t)> fn) { failed = fn; }
-  void begin() {}
+  void onProgress(std::function<void(unsigned int, unsigned int)> fn) { progressed = fn; }
+  void begin() { ++starts; }
+  void end() { ++stops; }
 } ArduinoOTA;
 void (*syncCallback)(timeval *) = nullptr;
 void sntp_set_time_sync_notification_cb(void (*cb)(timeval *)) { syncCallback = cb; }
@@ -159,10 +193,15 @@ void resetFixture() {
   preparedVolumeCommand = nullptr; irCommands = 0; irTransmissionEnabled = true;
   lastVolumeSignalMs = lastVolumeSendMs = 0;
   server.args.clear(); server.status = 0; server.body.clear(); server.headers.clear();
-  WiFi.connected = true; WiFi.sleep = 0;
+  WiFi = FakeWiFi{};
+  wifiRecovery.begin(0); networkServicesStarted = false;
+  server.starts = server.stops = ArduinoOTA.starts = ArduinoOTA.stops = 0;
+  loopWatchdogReady = false; watchdogFeeds = watchdogInits = 0;
+  watchdogReconfigureResult = watchdogAddResult = ESP_OK;
   deviceDiagnostics.connections.store(0); deviceDiagnostics.disconnects.store(0);
   deviceDiagnostics.lastDisconnectReason.store(0); deviceDiagnostics.lastDisconnectUptimeSeconds.store(0);
   deviceDiagnostics.maxLoopMs = 0;
+  deviceDiagnostics.disconnectPending.store(false);
 }
 
 #include "alarm_scheduler_checks.h"
@@ -181,6 +220,47 @@ void start(uint64_t session) {
 }
 
 int main() {
+  // Boot without a router returns immediately; spaced retries and a radio
+  // reset must not reboot, write flash, lose the clock or send any IR.
+  resetFixture(); WiFi.connected = false; connectToWiFi();
+  assert(WiFi.begins == 1 && WiFi.sleep == 0);
+  handleWiFiRecovery(); assert(server.starts == 0 && WiFi.retries == 0);
+  fakeUptime = WIFI_RETRY_MS - 1; handleWiFiRecovery(); assert(WiFi.retries == 0);
+  fakeUptime = WIFI_RETRY_MS; handleWiFiRecovery(); assert(WiFi.retries == 1);
+  handleWiFiRecovery(); assert(WiFi.retries == 1);
+  fakeUptime = WIFI_RADIO_RESET_MS; handleWiFiRecovery();
+  assert(WiFi.radioStops == 1 && WiFi.begins == 2 && wifiRecovery.radioResets == 1);
+  assert(resetCount == 0 && writeCount == 0 && irCommands == 0 && timeSynchronized.load());
+  WiFi.connected = true; handleWiFiRecovery();
+  assert(server.starts == 1 && ArduinoOTA.starts == 1);
+  handleWiFiRecovery(); assert(server.starts == 1);
+  // A disconnect/reconnect entirely between loop iterations closes the old
+  // hold session and refreshes HTTP/OTA sockets exactly once.
+  const uint64_t interruptedSession = volumeSafety.prepare(false, static_cast<uint32_t>(fakeUptime));
+  volumeSafety.start(interruptedSession, static_cast<uint32_t>(fakeUptime)); heldVolumeCommand = "VOL-";
+  deviceDiagnostics.disconnected(201, 60); handleWiFiRecovery();
+  assert(heldVolumeCommand == nullptr && !volumeSafety.matches(interruptedSession));
+  assert(server.starts == 2 && server.stops == 1 && ArduinoOTA.stops == 1);
+  start(interruptedSession); assert(server.status == 409);
+  WiFi.connected = false; heldVolumeCommand = "VOL+"; handleWiFiRecovery();
+  assert(heldVolumeCommand == nullptr);
+  otaInProgress = true; fakeUptime += 120000; handleWiFiRecovery();
+  assert(WiFi.radioStops == 1); // Recovery must not interrupt OTA.
+  otaInProgress = false; handleWiFiRecovery(); assert(WiFi.radioStops == 1);
+  fakeUptime += WIFI_RADIO_RESET_MS; handleWiFiRecovery(); assert(WiFi.radioStops == 2);
+  WiFiRecovery longRun; const uint64_t late = (1ULL << 32) + 5000;
+  longRun.begin(late); assert(longRun.update(late + WIFI_RETRY_MS, false, false) == WiFiRecovery::Action::Retry);
+  assert(longRun.update(late + WIFI_RADIO_RESET_MS, false, false) == WiFiRecovery::Action::ResetRadio);
+  resetFixture(); startLoopWatchdog();
+  assert(loopWatchdogReady && watchdogConfig.trigger_panic && watchdogConfig.timeout_ms == 15000);
+  feedLoopWatchdog(); assert(watchdogFeeds == 1);
+  startOta(); ArduinoOTA.progressed(1, 100); assert(watchdogFeeds == 2);
+  heldVolumeCommand = "VOL-"; ArduinoOTA.started(); assert(heldVolumeCommand == nullptr);
+  resetFixture(); watchdogReconfigureResult = ESP_ERR_INVALID_STATE; startLoopWatchdog();
+  assert(loopWatchdogReady && watchdogInits == 1);
+  resetFixture(); watchdogAddResult = 2; startLoopWatchdog(); feedLoopWatchdog();
+  assert(!loopWatchdogReady && watchdogFeeds == 0);
+  std::cout << "Wi-Fi outage/reconnect, radio recovery, OTA and loop watchdog checks passed.\n";
   resetFixture();
   handleRestartRequest(); assert(server.status == 400 && !manualRestartRequested && resetCount == 0);
   server.args = {{"confirm","restart"}}; otaInProgress = true;

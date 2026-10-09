@@ -8,6 +8,7 @@
 #include <esp_timer.h>
 #include <esp_random.h>
 #include <esp_system.h>
+#include <esp_task_wdt.h>
 #include <errno.h>
 
 #include "WiFiConfig.h"
@@ -16,6 +17,7 @@
 #include "VolumeHoldSafety.h"
 #include "VolumeControls.h"
 #include "DeviceDiagnostics.h"
+#include "WiFiRecovery.h"
 #include "DiagnosticsPage.h"
 #include "AlarmScheduler.h"
 #include "AlarmPage.h"
@@ -105,6 +107,9 @@ uint64_t manualRestartAtMs = 0;
 uint64_t lastRestartCheckMs = 0;
 VolumeHoldSafety volumeSafety;
 DeviceDiagnostics deviceDiagnostics;
+WiFiRecovery wifiRecovery;
+bool loopWatchdogReady = false;
+bool networkServicesStarted = false;
 const char *preparedVolumeCommand = nullptr;
 
 constexpr unsigned long VOLUME_REPEAT_INTERVAL_MS = 110;
@@ -174,7 +179,8 @@ void handleDiagnostics() {
       "\"disconnects\":%lu,\"lastDisconnectReason\":%s,\"lastDisconnectUptimeSeconds\":%s},"
       "\"memory\":{\"freeBytes\":%lu,\"minimumFreeBytes\":%lu,\"largestFreeBlockBytes\":%lu},"
       "\"reset\":{\"code\":%d,\"reason\":\"%s\"},\"loopMaxMs\":%lu,\"timeSynchronized\":%s,"
-      "\"volumeUpLimitMs\":%lu,\"volumeWatchdogMs\":%lu}",
+      "\"volumeUpLimitMs\":%lu,\"volumeWatchdogMs\":%lu,"
+      "\"recovery\":{\"wifiRetries\":%lu,\"radioResets\":%lu,\"loopWatchdogEnabled\":%s,\"loopWatchdogMs\":%lu}}",
       ONKYO_FIRMWARE_VERSION, static_cast<unsigned long long>(restartUptimeMs() / 1000),
       connected ? "true" : "false", rssi, WiFi.getSleep() != WIFI_PS_NONE ? "true" : "false",
       static_cast<unsigned long>(deviceDiagnostics.connections.load()), static_cast<unsigned long>(disconnects),
@@ -182,7 +188,9 @@ void handleDiagnostics() {
       static_cast<unsigned long>(ESP.getMinFreeHeap()), static_cast<unsigned long>(ESP.getMaxAllocHeap()),
       static_cast<int>(reset), resetReasonName(reset), static_cast<unsigned long>(deviceDiagnostics.maxLoopMs),
       timeSynchronized.load() ? "true" : "false", static_cast<unsigned long>(VOLUME_UP_MAX_HOLD_MS),
-      static_cast<unsigned long>(VOLUME_WATCHDOG_MS));
+      static_cast<unsigned long>(VOLUME_WATCHDOG_MS),
+      static_cast<unsigned long>(wifiRecovery.retries), static_cast<unsigned long>(wifiRecovery.radioResets),
+      loopWatchdogReady ? "true" : "false", static_cast<unsigned long>(LOOP_WATCHDOG_MS));
   server.sendHeader("Cache-Control", "no-store");
   if (size < 0 || static_cast<size_t>(size) >= sizeof(body)) {
     server.send(500, "application/json", "{\"ok\":false}");
@@ -891,18 +899,35 @@ void repeatHeldVolume() {
 void connectToWiFi() {
   WiFi.onEvent(onWiFiDiagnostics);
   WiFi.mode(WIFI_STA);
+  WiFi.setHostname(OTA_HOSTNAME);
+  WiFi.setAutoReconnect(true);
   if (!WiFi.setSleep(false)) Serial.println(F("Cannot disable Wi-Fi power saving."));
+  wifiRecovery.begin(restartUptimeMs());
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.println(F("Connecting to Wi-Fi in the background."));
+}
 
-  Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print('.');
+void startLoopWatchdog() {
+  esp_task_wdt_config_t config{};
+  config.timeout_ms = LOOP_WATCHDOG_MS;
+#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+  config.idle_core_mask |= 1;
+#endif
+#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+  config.idle_core_mask |= 2;
+#endif
+  config.trigger_panic = true;
+  esp_err_t result = esp_task_wdt_reconfigure(&config);
+  if (result == ESP_ERR_INVALID_STATE) result = esp_task_wdt_init(&config);
+  if (result == ESP_OK) {
+    result = esp_task_wdt_add(nullptr);
+    loopWatchdogReady = result == ESP_OK;
   }
+  if (!loopWatchdogReady) Serial.println(F("Cannot enable loop watchdog."));
+}
 
-  Serial.println();
-  Serial.print("Wi-Fi connected. Open http://");
-  Serial.println(WiFi.localIP());
+void feedLoopWatchdog() {
+  if (loopWatchdogReady) esp_task_wdt_reset();
 }
 
 void startOta() {
@@ -911,9 +936,14 @@ void startOta() {
   ArduinoOTA.setTimeout(OTA_RECEIVE_TIMEOUT_MS);
   ArduinoOTA.onStart([]() {
     otaInProgress = true;
+    stopVolume();
     alarms.cancelSource();
     recordUserActivity();
+    feedLoopWatchdog();
   });
+  // OTA.handle() stays inside one loop iteration for the whole transfer.
+  // Feed only while bytes are arriving; a stalled transfer remains bounded.
+  ArduinoOTA.onProgress([](unsigned int, unsigned int) { feedLoopWatchdog(); });
   ArduinoOTA.onEnd([]() {
     otaInProgress = false;
     recordUserActivity();
@@ -928,10 +958,45 @@ void startOta() {
   Serial.println(OTA_HOSTNAME);
 }
 
+void handleWiFiRecovery() {
+  const uint64_t now = restartUptimeMs();
+  if (deviceDiagnostics.disconnectPending.exchange(false)) {
+    stopVolume();
+    wifiRecovery.interrupted(now);
+  }
+  const bool connected = WiFi.status() == WL_CONNECTED;
+  if (!connected) stopVolume();
+  const auto action = wifiRecovery.update(now, connected, otaInProgress);
+  if (action == WiFiRecovery::Action::Connected) {
+    if (networkServicesStarted) {
+      server.stop();
+      ArduinoOTA.end();
+    }
+    startOta();
+    server.begin();
+    networkServicesStarted = true;
+    Serial.print("Wi-Fi connected. Open http://");
+    Serial.println(WiFi.localIP());
+  } else if (action == WiFiRecovery::Action::Retry) {
+    Serial.println(F("Wi-Fi recovery: retrying connection."));
+    WiFi.reconnect();
+  } else if (action == WiFiRecovery::Action::ResetRadio) {
+    Serial.println(F("Wi-Fi recovery: restarting radio without rebooting ESP32."));
+    // Keep credentials and the running clock; re-create sockets after GOT_IP.
+    WiFi.disconnect(true, false);
+    WiFi.mode(WIFI_STA);
+    WiFi.setHostname(OTA_HOSTNAME);
+    WiFi.setAutoReconnect(true);
+    WiFi.setSleep(false);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println(F("Onkyo IR Remote firmware v" ONKYO_FIRMWARE_VERSION));
+  startLoopWatchdog();
   restartStorageReady = restartPreferences.begin("onkyo-restart", false);
   dailyRestart.begin(restartUptimeMs(), restartStorageReady ? restartPreferences.getUInt("restartDay", 0) : 0);
   if (!restartStorageReady) Serial.println(F("Daily restart disabled: storage unavailable."));
@@ -978,7 +1043,6 @@ void setup() {
   connectToWiFi();
   startTimeSynchronization();
   volumeSafety.begin(esp_random());
-  startOta();
 
   server.on("/", HTTP_GET, handleRoot);
   server.on("/version", HTTP_GET, handleVersion);
@@ -1003,15 +1067,16 @@ void setup() {
   server.on("/learn/start", HTTP_POST, handleLearnStart);
   server.on("/learn/cancel", HTTP_POST, handleLearnCancel);
   server.on("/learn/status", HTTP_GET, handleLearnStatus);
-  server.begin();
-
-  Serial.println("HTTP server started.");
+  // HTTP and OTA start when Wi-Fi obtains an address, also after reconnects.
 }
 
 void loop() {
   const uint64_t started = restartUptimeMs();
-  ArduinoOTA.handle();
-  server.handleClient();
+  handleWiFiRecovery();
+  if (WiFi.status() == WL_CONNECTED) {
+    ArduinoOTA.handle();
+    server.handleClient();
+  }
   repeatHeldVolume();
   processLearnedCommand();
   handleRequestedRestart();
@@ -1021,4 +1086,6 @@ void loop() {
   if (elapsed > deviceDiagnostics.maxLoopMs) {
     deviceDiagnostics.maxLoopMs = elapsed > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(elapsed);
   }
+  feedLoopWatchdog();
+  delay(1); // Allow the idle/system tasks to run even without HTTP traffic.
 }

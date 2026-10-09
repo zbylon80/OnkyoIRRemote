@@ -26,6 +26,9 @@ try {
     if ($report -notmatch 'PASS:' -or $report -notmatch 'INSTRUMENTATION_CODE: -1') { throw 'Widget smoke test failed.' }
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/widget.png', (Join-Path $resultDirectory 'widget.png'))
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/widget-small.png', (Join-Path $resultDirectory 'widget-small.png'))
+    foreach ($image in @('volume-up-pressed.png', 'volume-down-pressed.png')) {
+        Invoke-TestAdb @('pull', ('/sdcard/Android/data/pl.onkyo.remote/files/' + $image), (Join-Path $resultDirectory $image))
+    }
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/alarm.png', (Join-Path $resultDirectory 'alarm.png'))
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/time-editor.png', (Join-Path $resultDirectory 'time-editor.png'))
     Invoke-TestAdb @('pull', '/sdcard/Android/data/pl.onkyo.remote/files/source-picker.png', (Join-Path $resultDirectory 'source-picker.png'))

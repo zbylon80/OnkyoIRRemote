@@ -12,7 +12,8 @@ functions = ('restartUptimeMs', 'recordUserActivity', 'onTimeSynchronized',
              'handleDiagnosticsPage', 'handleDailyRestart', 'stopVolume',
              'readVolumeSession', 'handleVolumePress', 'expireVolumeHold', 'handleVolumeStart',
              'handleVolumeKeepalive', 'handleVolumeStop', 'repeatHeldVolume', 'handleVersion',
-             'handleRoot', 'handleManifest', 'handleIcon', 'startOta',
+             'handleRoot', 'handleManifest', 'handleIcon', 'startLoopWatchdog', 'feedLoopWatchdog',
+             'startOta', 'connectToWiFi', 'handleWiFiRecovery',
              'persistAlarms', 'handleAlarmSettings', 'readAlarmTime', 'saveAlarmSettings', 'handleAlarms',
              'handleRestartRequest', 'handleRequestedRestart')
 timeout = re.search(r'^constexpr uint32_t OTA_RECEIVE_TIMEOUT_MS = \d+;', source, re.M)
@@ -63,6 +64,8 @@ for line in result.stdout.splitlines():
         assert data['version'] == version and data['volumeUpLimitMs'] == 3000
         assert data['volumeWatchdogMs'] == 2000 and data['reset']['reason'] == 'software'
         assert data['memory']['freeBytes'] == 180000 and data['memory']['minimumFreeBytes'] == 160000
+        assert data['recovery'] == {'wifiRetries': 0, 'radioResets': 0,
+                                    'loopWatchdogEnabled': False, 'loopWatchdogMs': 15000}
         assert not any(f'"{key}"' in body.lower() for key in ('password', 'ssid', 'macaddress', 'otapassword', 'wifissid'))
         if label == 'DIAGNOSTICS_CONNECTED':
             assert data['wifi']['rssiDbm'] == -64 and not data['wifi']['sleepEnabled']

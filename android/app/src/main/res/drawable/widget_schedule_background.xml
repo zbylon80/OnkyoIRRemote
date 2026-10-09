@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_enabled="false"><shape><corners android:radius="12dp" /><solid android:color="#2B3229" /><stroke android:width="1dp" android:color="#515B4D" /></shape></item>
+    <!-- A command temporarily disables this key; that must not look like an alarm press. -->
     <item android:state_pressed="true"><shape><corners android:radius="12dp" /><solid android:color="#526D49" /><stroke android:width="1dp" android:color="#B4CBAE" /></shape></item>
     <item android:state_focused="true"><shape><corners android:radius="12dp" /><solid android:color="#34472E" /><stroke android:width="2dp" android:color="#E9D7AB" /></shape></item>
     <item><shape><corners android:radius="12dp" /><solid android:color="#34472E" /><stroke android:width="1dp" android:color="#8CAE86" /></shape></item>

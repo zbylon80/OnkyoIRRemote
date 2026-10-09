@@ -1,6 +1,6 @@
 # Widżet Onkyo na Androida
 
-Aplikacja 0.4.2 udostępnia natywny widżet ekranu głównego z przyciskami
+Aplikacja 0.4.3 udostępnia natywny widżet ekranu głównego z przyciskami
 panelu Basic. Wymaga Androida 8.0 lub nowszego. Ustawienia są po polsku,
 oznaczenia klawiszy odpowiadają panelowi WWW.
 
@@ -26,7 +26,7 @@ zapisane i wykonywane przez ESP32. Po zapisie telefon może być wyłączony.
 jest odczyt przed kolejnym zapisem; aplikacja nie ponawia zapisu automatycznie.
 Brak synchronizacji zegara blokuje nowe akcje, ale pozwala anulować istniejące.
 
-1. Przenieś `artifacts/OnkyoRemote-Android-0.4.2.apk` na telefon i otwórz plik.
+1. Przenieś `artifacts/OnkyoRemote-Android-0.4.3.apk` na telefon i otwórz plik.
    Jest to lokalny APK testowy podpisany kluczem debug tego komputera.
    Android może poprosić o zezwolenie na instalację z aplikacji otwierającej plik.
    Przy aktualizacji istniejącej aplikacji wybierz **Aktualizuj**, bez odinstalowania.
@@ -57,6 +57,9 @@ Widżet można powiększyć. Nie ma klawiszy ani linku Advanced.
   Trzymanie przez 350 ms uruchamia `/volume/start`, następnie `/volume/keepalive`
   co około 500 ms. Puszczenie lub anulowanie dotyku wysyła `/volume/stop`.
   Wszystkie trzy żądania używają otrzymanego pola `session`.
+- VOL− i VOL+ pokazują wciśnięcie od razu pod palcem, niezależnie od odpowiedzi
+  ESP32. Puszczenie lub anulowanie dotyku przywraca zwykły wygląd. Zegarek
+  budzika reaguje na własne naciśnięcie i zachowuje kolor podczas innych komend.
 - Krótkie dotknięcie daje jeden krok. Puszczenie przed odpowiedzią `/volume/press`
   nie uruchamia późniejszego powtarzania. Aplikacja kończy sesję po 3 sekundach;
   można puścić i ponownie przytrzymać. Nie wznawia jej po zabiciu procesu.
@@ -128,7 +131,9 @@ Testuje 11 przypisań przycisków, minimalny i powiększony układ, odczyt wersj
 odrzucanie opóźnionych kliknięć, błąd HTTP, negatywny JSON, przekroczenie czasu
 odpowiedzi i kolejną poprawną komendę. Na Androidzie 16 sprawdza też obie
 strony głośności, puszczenie przed odpowiedzią, anulowanie, limit 3 sekund,
-nieprawidłowy identyfikator sesji oraz brak keepalive po puszczeniu.
+nieprawidłowy identyfikator sesji oraz brak keepalive po puszczeniu. Porównuje
+wygląd VOL−/VOL+ po naciśnięciu, puszczeniu i anulowaniu oraz sprawdza, że
+inna komenda nie zmienia wyglądu zegarka.
 Wyniki i zrzuty ekranu trafiają
 do `app/build/reports/widget-smoke/`.
 Test budzika klika zegarek widżetu i sprawdza otwarcie własnego ekranu,

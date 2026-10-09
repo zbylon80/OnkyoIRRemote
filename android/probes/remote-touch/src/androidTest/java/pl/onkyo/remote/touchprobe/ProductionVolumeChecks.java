@@ -44,9 +44,14 @@ final class ProductionVolumeChecks {
                 cold();
                 Rect key = bounds(direction);
                 int before = count();
+                android.graphics.Bitmap idleKey = keyImage(key);
                 inject(MotionEvent.ACTION_DOWN, key);
                 waitCount(before + 1);
                 Thread.sleep(1150);
+                android.graphics.Bitmap heldKey = keyImage(key);
+                require(!idleKey.sameAs(heldKey), "Cold launcher volume key has no pressed feedback");
+                heldKey.recycle();
+                screenshot("volume-" + direction + "-pressed");
                 List<String> held = snapshot(before);
                 require(held.get(0).equals("/volume/press direction=" + direction), "Wrong direction: " + held);
                 require(held.stream().anyMatch(s -> s.startsWith("/volume/start ")), "No hold start: " + held);
@@ -56,6 +61,9 @@ final class ProductionVolumeChecks {
                 inject(MotionEvent.ACTION_UP, key);
                 waitStop(before); int stopped = count(); Thread.sleep(650);
                 require(count() == stopped, "Requests continued after release");
+                android.graphics.Bitmap releasedKey = keyImage(key);
+                require(idleKey.sameAs(releasedKey), "Cold launcher volume key remained pressed");
+                idleKey.recycle(); releasedKey.recycle();
                 Thread.sleep(200);
             }
             cold();
@@ -67,7 +75,7 @@ final class ProductionVolumeChecks {
                     && tap.get(1).startsWith("/volume/stop "), "Tap repeated: " + tap);
             screenshot("production-launcher");
             return "Production widget on Pixel Launcher: cold/idle app; VOL+/VOL- held 1.2s; "
-                    + "keepalive only while held; release stops; tap is one step; no activity opened.\n" + snapshot(0) + "\n";
+                    + "pressed feedback from cold app and restored after release; keepalive only while held; release stops; tap is one step; no activity opened.\n" + snapshot(0) + "\n";
         } finally { if (fingerDown) cancelFinger(); server.close(); }
     }
 
@@ -120,6 +128,12 @@ final class ProductionVolumeChecks {
              java.io.FileInputStream input = new java.io.FileInputStream(descriptor.getFileDescriptor())) {
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+    private android.graphics.Bitmap keyImage(Rect bounds) {
+        android.graphics.Bitmap screen = test.getUiAutomation().takeScreenshot();
+        require(screen != null, "No screenshot for visual feedback check");
+        android.graphics.Bitmap key = android.graphics.Bitmap.createBitmap(screen, bounds.left, bounds.top, bounds.width(), bounds.height());
+        screen.recycle(); return key;
     }
     private void screenshot(String name) throws Exception {
         try (FileOutputStream output = new FileOutputStream(new java.io.File(test.getTargetContext().getExternalFilesDir(null), "probe-" + name + ".png"))) {

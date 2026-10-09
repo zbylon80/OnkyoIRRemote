@@ -19,7 +19,7 @@ i zapisują ten sam harmonogram ESP32. Podpowiedź ikony: **Budzik i wyłączeni
 
 Panel ma tylko dwie niezależne opcje: **Włącz** — godzina, źródło i **Ustaw**,
 oraz **Wyłącz** — godzina i **Ustaw**. Możesz ustawić jedną akcję lub obie.
-Widżety 0.4.2 i firmware 1.3.2 mają spójny, ciemny wybór czasu i źródła.
+Windows 0.4.2, Android 0.4.3 i firmware 1.3.2 mają spójny, ciemny wybór czasu i źródła.
 Kliknięcie dużej godziny otwiera edytor 24-godzinny. W dół przechodzisz do
 następnej liczby, w górę do poprzedniej; cyfry można też wpisać.
 **Gotowe** zatwierdza wybór lokalnie, a **Ustaw** zapisuje harmonogram na ESP32.
@@ -84,6 +84,17 @@ należy odświeżyć istniejące karty pilota; poprzednie żądania przytrzymani
 identyfikatora są odrzucane.
 
 ## Diagnostyka stabilności
+
+Od wersji 1.3.3 start nie czeka bez końca na Wi-Fi. Firmware ponawia połączenie
+co 15 sekund, a po minucie bez adresu IP ponownie uruchamia radio. Po odzyskaniu
+sieci odtwarza HTTP i OTA. Awaria routera nie wywołuje ciągłych restartów ESP32;
+zegar i zapisane harmonogramy mogą dalej działać bez sieci po synchronizacji.
+Watchdog głównej pętli wymusza reset po 15 sekundach bez postępu; podczas OTA
+jest podtrzymywany przez postęp transferu. Zgłoszone rozłączenie Wi-Fi zamyka
+sesję głośności w następnym obiegu pętli. Przy utracie samego klienta nadal działa
+limit 2 sekund bez keepalive i limit 3 sekund zgłaśniania. JSON `/diagnostics`
+zawiera dodatkowo `recovery`: liczniki prób połączenia i restartów radia oraz
+stan i limit watchdoga. Liczniki dotyczą bieżącego uruchomienia.
 
 Od wersji 1.1.0 usypianie Wi-Fi jest wyłączone, aby zmniejszyć opóźnienia;
 oznacza to większy pobór prądu przez radio. Link **Diagnostyka** pod numerem

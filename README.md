@@ -25,7 +25,7 @@ panels and from the clock icon in the Windows/Android widget's top menu.
 Widgets 0.4.0 or later open their own native alarm panel without a browser; all clients
 read and write the same settings on the ESP32 through `/alarms`.
 Choose a wake time/source and press **Ustaw**, or an off time and its **Ustaw**.
-Windows/Android 0.4.2 and firmware 1.3.2 use matching dark time and source
+Windows 0.4.2, Android 0.4.3 and firmware 1.3.2 use matching dark time and source
 pickers. Click HH:mm to edit 24-hour digits: down advances the number, up goes
 back. **Gotowe** confirms only the local choice; **Ustaw** writes the schedule.
 Each action is independent and runs once: today if the chosen minute has not
@@ -91,6 +91,17 @@ Reload existing browser tabs after uploading this version; the previous hold
 API without a session token is rejected.
 
 ## Stability diagnostics
+
+Starting with 1.3.3, startup does not wait indefinitely for Wi-Fi. Connection
+attempts are repeated every 15 seconds; after a minute without an IP address,
+the radio is restarted. HTTP and OTA are recreated when connectivity returns.
+A router outage does not repeatedly reboot ESP32, so its synchronized clock
+and saved alarms can keep running offline. A loop watchdog resets a stalled
+task after 15 seconds; OTA transfer progress feeds it during uploads. A reported
+Wi-Fi disconnect closes the volume session on the next loop iteration. The
+two-second client keepalive watchdog and three-second volume-up cap remain.
+The `/diagnostics` JSON additionally reports `recovery`: connection retry/radio
+restart counters and the loop watchdog status/timeout, all for the current boot.
 
 Starting with 1.1.0, Wi-Fi modem sleep is disabled to reduce response latency;
 this increases radio power consumption. The **Diagnostyka** link below the

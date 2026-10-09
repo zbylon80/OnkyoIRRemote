@@ -3,6 +3,35 @@
 Firmware versions use `MAJOR.MINOR.PATCH`. Entries marked **Unreleased** describe
 prepared changes; they do not mean that a device has been updated.
 
+## 1.3.3 — 2026-10-09
+
+- Start Wi-Fi without an indefinite boot wait. Retry every 15 seconds, cycle
+  the radio after 60 seconds offline and recreate HTTP/OTA after reconnection.
+  Preserve the running clock and alarms during router outages without rebooting.
+- Enable a 15-second task watchdog with panic/reset; feed it from loop completion
+  and OTA transfer progress. Yield briefly to system tasks between iterations.
+- Close volume sessions after Wi-Fi disconnects, including a disconnect/reconnect
+  between iterations, and before OTA. Keep existing client/volume safety limits.
+- Add recovery counters and watchdog status to diagnostics JSON. Test offline
+  boot, retry deadlines, radio cycling, reconnection, stale holds, OTA guards,
+  long uptimes and watchdog setup/failure paths with simulated hardware.
+- Passed host/browser tests and ESP32 compilation; successfully uploaded by OTA.
+  Verified HTTP 200, running 1.3.3, active watchdog, synchronized clock and
+  unchanged stored schedules. The original outage's cause remains unconfirmed;
+  extended uptime and a physical watchdog timeout are not proven by these checks.
+
+## Android 0.4.3 — 2026-10-08
+
+- Show immediate local pressed feedback on Android 16 VOL−/VOL+, without waiting
+  for the service or ESP32. Restore appearance on release/cancel and retain the
+  existing hold protocol, finite watchdogs and no automatic retries.
+- Keep the clock button's appearance unchanged while other commands temporarily
+  disable it. Preserve feedback for pressing the clock itself.
+- Add visual regression checks for both volume keys, release/cancel and the
+  clock during unrelated commands, including cold app gestures on Pixel Launcher.
+- Built APK 0.4.3; lint, the complete widget/alarm smoke suite and production
+  Pixel Launcher checks passed. Inspected pressed-key screenshots.
+
 ## Android 0.4.2 — 2026-10-08
 
 - Match the Windows dark time editor and source picker. Show large HH:mm

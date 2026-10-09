@@ -53,6 +53,7 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
+            cancelTestTouch();
             target = getTargetContext();
             target.getExternalFilesDir(null); // Create the app-owned screenshot directory.
             validateAddresses();
@@ -84,6 +85,9 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
                 awaitStatus("ESP32 przyjęło " + BASIC_COMMANDS[i]);
                 require(requestCount() == expected, "Duplicate command");
             }
+
+            checkAlarmKeyFeedback();
+            if (android.os.Build.VERSION.SDK_INT >= 36) checkVolumeFeedback();
 
             // Slow connection: a second tap must be discarded, never queued.
             delayMs = 700;
@@ -133,11 +137,12 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
             checkAlarms();
             result.putString("stream", "PASS: 11 Basic button mappings; minimum/resized layout; read-only check; "
                     + "concurrent tap dropped; HTTP/JSON errors; timeout and recovery; no retry; "
-                    + "hold/release both directions; release before acknowledgement; cancel; 3s cap; invalid session; "
+                    + "local volume pressed feedback; unchanged alarm during commands; hold/release both directions; release before acknowledgement; cancel; 3s cap; invalid session; "
                     + "native alarm panel; 24-hour selectors; independent Set/Cancel; preserved drafts; NTP/error guards; no alarm write retries.\n");
         } catch (Throwable failure) {
             result.putString("stream", "FAIL: " + android.util.Log.getStackTraceString(failure));
         } finally {
+            cancelTestTouch();
             if (host != null) { host.stopListening(); host.deleteHost(); }
             if (target != null && widgetId != 0) WidgetSettings.delete(target, widgetId);
             if (server != null) try { server.close(); } catch (Exception ignored) { }
@@ -396,6 +401,12 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
     private static void require(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
     private static final class ActivityResult { static final int OK = -1; static final int FAIL = 0; }
 
+    private void cancelTestTouch() {
+        long now = android.os.SystemClock.uptimeMillis();
+        android.view.MotionEvent event = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_CANCEL, 0, 0, 0);
+        event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+        getUiAutomation().injectInputEvent(event, true); event.recycle();
+    }
     private View key(int id) {
         return hostView.findViewById(android.os.Build.VERSION.SDK_INT >= 36 && id == R.id.volume_up ? R.id.volume_up_slot
                 : android.os.Build.VERSION.SDK_INT >= 36 && id == R.id.volume_down ? R.id.volume_down_slot : id);
@@ -418,6 +429,52 @@ public final class WidgetSmokeTestRunner extends Instrumentation {
         android.view.MotionEvent event = android.view.MotionEvent.obtain(touchDown, android.os.SystemClock.uptimeMillis(), action, point[0], point[1], 0);
         event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
         require(getUiAutomation().injectInputEvent(event, true), "Could not inject touch"); event.recycle();
+    }
+    private android.graphics.Bitmap appearance(int id) {
+        android.graphics.Bitmap[] image = {null};
+        ui(() -> {
+            View view = key(id);
+            image[0] = android.graphics.Bitmap.createBitmap(view.getWidth(), view.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+            view.draw(new android.graphics.Canvas(image[0]));
+        });
+        return image[0];
+    }
+    private void checkAlarmKeyFeedback() throws Exception {
+        android.graphics.Bitmap idle = appearance(R.id.schedule);
+        delayMs = 700;
+        int before = requestCount();
+        click(R.id.mute); awaitRequests(before + 1);
+        ui(() -> require(!key(R.id.schedule).isEnabled(), "Busy alarm key was not guarded"));
+        require(idle.sameAs(appearance(R.id.schedule)), "Unrelated command changed alarm appearance");
+        awaitStatus("ESP32 przyjęło MUTE"); delayMs = 0;
+        require(idle.sameAs(appearance(R.id.schedule)), "Alarm changed after command completion");
+        ui(() -> key(R.id.schedule).setPressed(true));
+        require(!idle.sameAs(appearance(R.id.schedule)), "Alarm does not react to its own press");
+        ui(() -> key(R.id.schedule).setPressed(false));
+        require(idle.sameAs(appearance(R.id.schedule)), "Alarm stayed pressed");
+        idle.recycle();
+    }
+    private void checkVolumeFeedback() throws Exception {
+        for (int id : new int[]{R.id.volume_down, R.id.volume_up}) {
+            for (int release : new int[]{android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL}) {
+                android.graphics.Bitmap idle = appearance(id);
+                android.graphics.Bitmap alarm = appearance(R.id.schedule);
+                // Feedback must be local even while the network response is still delayed.
+                delayMs = 250;
+                touch(id, android.view.MotionEvent.ACTION_DOWN);
+                Thread.sleep(80);
+                if (screenshotPath != null) screenshot(screenshotPath.replace("widget.png", "feedback-debug.png"));
+                require(!idle.sameAs(appearance(id)), "Volume has no immediate pressed feedback");
+                require(alarm.sameAs(appearance(R.id.schedule)), "Volume press changed alarm appearance");
+                if (release == android.view.MotionEvent.ACTION_UP && screenshotPath != null) {
+                    screenshot(screenshotPath.replace("widget.png", id == R.id.volume_up ? "volume-up-pressed.png" : "volume-down-pressed.png"));
+                }
+                touch(id, release); Thread.sleep(80);
+                require(idle.sameAs(appearance(id)), "Volume remained pressed after release/cancel");
+                awaitStatus("ESP32 przyjęło " + (id == R.id.volume_up ? "VOL+" : "VOL-"));
+                delayMs = 0; idle.recycle(); alarm.recycle();
+            }
+        }
     }
     private void checkHolds() throws Exception {
         for (int key : new int[]{R.id.volume_down, R.id.volume_up}) {

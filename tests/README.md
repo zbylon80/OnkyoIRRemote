@@ -13,6 +13,13 @@ The tests compile the real `DailyRestart.h` policy and extract the actual
 clock/restart/OTA/volume functions from the sketch. Simulated hardware records flash
 writes and resets; tests never connect to the ESP32 or emit IR.
 
+Recovery checks also use the real `WiFiRecovery.h` policy and extracted Wi-Fi,
+watchdog and OTA functions. They cover boot without a router, retry spacing,
+radio reset without ESP32 reboot/flash/IR, HTTP/OTA restoration, a disconnect
+and reconnect between iterations, stale holds, OTA guards, long uptimes and
+watchdog initialization/failure. The simulated watchdog checks configuration
+and feeding; an actual hardware timeout/reset is not induced by host tests.
+
 The host tests also compile the real one-shot alarm scheduler and extract its
 HTTP handlers: independent Set/Cancel actions, today/tomorrow and year/leap-date
 rollover, consumption persisted before POWER, two-second source delay, no next-day
