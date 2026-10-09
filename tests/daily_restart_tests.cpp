@@ -11,6 +11,7 @@
 #include "VolumeHoldSafety.h"
 #include "DeviceDiagnostics.h"
 #include "WiFiRecovery.h"
+#include "EventLog.h"
 #include "DailyRestart.h"
 #include "AlarmScheduler.h"
 #include "FirmwareVersion.h"
@@ -85,6 +86,25 @@ esp_reset_reason_t esp_reset_reason() { return ESP_RST_SW; }
 DeviceDiagnostics deviceDiagnostics;
 WiFiRecovery wifiRecovery;
 bool loopWatchdogReady = false, networkServicesStarted = false;
+EventLog eventLog;
+bool logStorageReady = false;
+uint32_t logSaveFailures = 0;
+uint64_t lastHealthLogMs = 0, lastSlowLogMs = 0;
+bool clockLogged = false;
+struct FakeLogStorage {
+  LogSnapshot saved{};
+  bool present = false, writable = true, available = true;
+  int writes = 0;
+  bool begin(const char *, bool) { return available; }
+  bool isKey(const char *) { return present; }
+  size_t getBytesLength(const char *) { return sizeof(saved); }
+  size_t getBytes(const char *, void *out, size_t size) { *static_cast<LogSnapshot *>(out) = saved; return size; }
+  size_t putBytes(const char *, const void *value, size_t size) {
+    ++writes;
+    if (!writable) return 0;
+    saved = *static_cast<const LogSnapshot *>(value); present = true; return size;
+  }
+} logPreferences;
 using esp_err_t = int;
 constexpr int ESP_OK = 0, ESP_ERR_INVALID_STATE = 1;
 struct esp_task_wdt_config_t { uint32_t timeout_ms = 0, idle_core_mask = 0; bool trigger_panic = false; };
@@ -98,6 +118,7 @@ int esp_task_wdt_init(const esp_task_wdt_config_t *config) { ++watchdogInits; wa
 int esp_task_wdt_add(void *task) { assert(task == nullptr); return watchdogAddResult; }
 void esp_task_wdt_reset() { ++watchdogFeeds; }
 constexpr int IR_SEND_PIN = 26, LOW = 0;
+constexpr size_t CONTENT_LENGTH_UNKNOWN = static_cast<size_t>(-1);
 void digitalWrite(int, int) { events.push_back("low"); }
 using String = std::string;
 struct FakeServer {
@@ -113,8 +134,10 @@ struct FakeServer {
   void send(int code, const char *, const char *value) { status = code; body = value; }
   void send_P(int code, const char *, const char *value) { status = code; body = value; }
   void sendHeader(const char *key, const char *value) { headers[key] = value; }
+  void setContentLength(size_t value) { assert(value == CONTENT_LENGTH_UNKNOWN); }
+  void sendContent(const char *value) { body += value; }
 } server;
-const char *INDEX_PAGE = "", *PWA_MANIFEST = "", *PWA_ICON = "", *DIAGNOSTICS_PAGE = "diagnostics";
+const char *INDEX_PAGE = "", *PWA_MANIFEST = "", *PWA_ICON = "", *DIAGNOSTICS_PAGE = "diagnostics", *LOG_PAGE = "log page";
 using ota_error_t = int;
 const char *OTA_HOSTNAME = "test", *OTA_PASSWORD = "test";
 struct FakeOTA {
@@ -197,6 +220,9 @@ void resetFixture() {
   wifiRecovery.begin(0); networkServicesStarted = false;
   server.starts = server.stops = ArduinoOTA.starts = ArduinoOTA.stops = 0;
   loopWatchdogReady = false; watchdogFeeds = watchdogInits = 0;
+  eventLog = EventLog{}; eventLog.beginBoot(0);
+  logPreferences = FakeLogStorage{}; logStorageReady = false; logSaveFailures = 0;
+  lastHealthLogMs = lastSlowLogMs = 0; clockLogged = false;
   watchdogReconfigureResult = watchdogAddResult = ESP_OK;
   deviceDiagnostics.connections.store(0); deviceDiagnostics.disconnects.store(0);
   deviceDiagnostics.lastDisconnectReason.store(0); deviceDiagnostics.lastDisconnectUptimeSeconds.store(0);
@@ -220,6 +246,64 @@ void start(uint64_t session) {
 }
 
 int main() {
+  // Bounded ring, serialization, corruption rejection and monotonic boot IDs.
+  EventLog ring; ring.beginBoot(0);
+  for (uint32_t i = 0; i < 60; ++i) {
+    LogEntry entry{}; entry.detail = i; entry.event = LogEvent::Health;
+    ring.append(entry, false);
+  }
+  assert(ring.count() == 48 && ring.at(0).detail == 12 && ring.at(47).detail == 59);
+  const LogSnapshot snapshot = ring.snapshot();
+  EventLog restored; assert(restored.restore(snapshot)); restored.beginBoot(0);
+  assert(restored.boot() == 2 && restored.at(0).detail == 12);
+  LogSnapshot corrupt = snapshot; corrupt.entries[4].freeBytes ^= 1;
+  assert(!restored.restore(corrupt)); corrupt = snapshot; corrupt.schema = 2;
+  assert(!restored.restore(corrupt));
+  assert(!ring.shouldSave(LOG_CHECKPOINT_MS-1, false, false));
+  assert(ring.shouldSave(LOG_CHECKPOINT_MS, false, false));
+  assert(!ring.shouldSave(LOG_CHECKPOINT_MS, false, true));
+  ring.saveResult(LOG_CHECKPOINT_MS, false);
+  assert(!ring.shouldSave(LOG_CHECKPOINT_MS+1, false, false));
+  LogEntry urgent{}; urgent.event = LogEvent::WiFiDisconnected; ring.append(urgent, true);
+  assert(!ring.shouldSave(LOG_CHECKPOINT_MS+LOG_IMPORTANT_INTERVAL_MS-1, false, false));
+  assert(ring.shouldSave(LOG_CHECKPOINT_MS+LOG_IMPORTANT_INTERVAL_MS, false, false));
+  // Flash snapshot is the only source when RAM is lost to a hard power cycle.
+  resetFixture(); timeSynchronized.store(false); eventLog = EventLog{}; startEventLog();
+  assert(logPreferences.writes == 1 && eventLog.boot() == 1);
+  recordLogEvent(LogEvent::WiFiDisconnected, 201, true);
+  fakeUptime = 59999; saveEventLog(); assert(logPreferences.writes == 1);
+  heldVolumeCommand = "VOL-"; fakeUptime = 60000; saveEventLog(); assert(logPreferences.writes == 1);
+  heldVolumeCommand = nullptr; otaInProgress = true; saveEventLog(); assert(logPreferences.writes == 1);
+  otaInProgress = false; saveEventLog(); assert(logPreferences.writes == 2);
+  recordLogEvent(LogEvent::ManualRestart, 0, true); saveEventLog(true);
+  const int writesBeforeRead = logPreferences.writes;
+  handleEventLog(); handleLogPage(); assert(logPreferences.writes == writesBeforeRead && irCommands == 0);
+  eventLog = EventLog{}; fakeUptime = 0; startEventLog();
+  assert(eventLog.boot() == 2 && eventLog.count() == 4);
+  handleEventLog(); std::cout << "EVENT_LOG:" << server.body << "\n";
+  // Failed writes retry no faster than a minute; the remote continues operating.
+  recordLogEvent(LogEvent::WiFiDisconnected, 202, true); logPreferences.writable = false;
+  fakeUptime = 60000; saveEventLog(); assert(logSaveFailures == 1);
+  const int failedWrites = logPreferences.writes; ++fakeUptime; saveEventLog();
+  assert(logPreferences.writes == failedWrites && eventLog.pending());
+  fakeUptime += LOG_IMPORTANT_INTERVAL_MS; saveEventLog(); assert(logSaveFailures == 2);
+  resetFixture(); logPreferences.available = false; eventLog = EventLog{}; startEventLog();
+  assert(!logStorageReady && eventLog.count() == 2 && logPreferences.writes == 0);
+  resetFixture(); logStorageReady = true;
+  maintainEventLog(0); maintainEventLog(0);
+  assert(eventLog.count() == 1 && eventLog.at(0).event == LogEvent::ClockReady);
+  fakeUptime = LOG_CHECKPOINT_MS-1; maintainEventLog(0); assert(eventLog.count() == 1);
+  heldVolumeCommand = "VOL-"; ++fakeUptime; maintainEventLog(0);
+  assert(eventLog.count() == 2 && eventLog.at(1).event == LogEvent::Health && logPreferences.writes == 0);
+  heldVolumeCommand = nullptr; maintainEventLog(0); assert(logPreferences.writes == 1);
+  ++fakeUptime; maintainEventLog(1250);
+  assert(eventLog.at(2).event == LogEvent::SlowLoop && eventLog.at(2).detail == 1250);
+  ++fakeUptime; maintainEventLog(1500); assert(eventLog.count() == 3);
+  // Invalid stored snapshots produce a warning and a fresh usable ring.
+  logPreferences.saved.entries[0].freeBytes ^= 1;
+  eventLog = EventLog{}; logSaveFailures = 0; startEventLog();
+  assert(logSaveFailures == 1 && eventLog.count() == 2 && logPreferences.writes == 2);
+  std::cout << "Event log ring, flash persistence, power-cycle restore, rate limits and failures passed.\n";
   // Boot without a router returns immediately; spaced retries and a radio
   // reset must not reboot, write flash, lose the clock or send any IR.
   resetFixture(); WiFi.connected = false; connectToWiFi();

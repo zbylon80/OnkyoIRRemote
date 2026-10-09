@@ -31,6 +31,7 @@ a{color:#d1c8ba;margin-right:24px}#result{min-height:1.5em}
 <dt>Limit zgłaśniania</dt><dd id="limit">—</dd>
 </dl><p>Restart uruchamia ponownie pilot ESP32. Zapisane ustawienia i harmonogram pozostają w pamięci. Po restarcie zegar ponownie synchronizuje się przez NTP.</p>
 <button id="restart" type="button">Restart ESP32</button>
+<p><a href="/log">Historia zdarzeń i pobieranie logu</a></p>
 <p><a href="/">Pilot Basic</a><a href="/advanced">Pilot Advanced</a><a href="/schedule">Budzik i wyłączenie</a></p>
 <script>
 const button = document.querySelector('#refresh');

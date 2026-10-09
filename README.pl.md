@@ -85,6 +85,23 @@ identyfikatora są odrzucane.
 
 ## Diagnostyka stabilności
 
+Od wersji 1.3.4 link **Historia zdarzeń** w diagnostyce prowadzi do `/log`.
+Pod `/logs` można pobrać JSON ostatnich 48 zdarzeń. Log zawiera kolejne numery
+uruchomień, powody resetu ESP32, Wi-Fi (ostatni kod rozłączenia przetworzony
+przez pętlę), odzyskiwanie sieci, OTA, restart ręczny/nocny, synchronizację czasu,
+wolne obiegi oraz stan co 5 minut. Wpisy zawierają uptime, czas po synchronizacji
+NTP, RSSI, wolną pamięć, największy blok i maksymalny czas pętli. Przed NTP
+czas zegarowy jest `null`. Te same nowe zdarzenia trafiają na USB Serial 115200.
+
+Historia jest buforem w RAM z kopią we flash NVS: zwykle zapis co 5 minut,
+ważne zdarzenia przyspieszają zapis do najwyżej raz na minutę. Zapis okresowy
+czeka podczas OTA, uczenia IR, trzymania przycisku lub wyboru źródła budzika.
+Start oraz planowany restart/OTA wymuszają zapis. Przerwa zasilania może utracić
+niezapisaną końcówkę; po watchdogu lub awarii zostaje wcześniejsza kopia i wpis
+powodu kolejnego startu. Uszkodzony format jest odrzucany; błąd NVS nie blokuje
+pilota, a strona zgłasza brak trwałego zapisu. Log nie zawiera haseł, SSID,
+komend pilota ani danych klientów. Odczyty nie zapisują flash i nie wysyłają IR.
+
 Od wersji 1.3.3 start nie czeka bez końca na Wi-Fi. Firmware ponawia połączenie
 co 15 sekund, a po minucie bez adresu IP ponownie uruchamia radio. Po odzyskaniu
 sieci odtwarza HTTP i OTA. Awaria routera nie wywołuje ciągłych restartów ESP32;

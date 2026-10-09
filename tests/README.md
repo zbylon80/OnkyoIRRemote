@@ -7,6 +7,7 @@ python tests/test_daily_restart.py
 node tests/test_volume_controls.js
 node tests/test_diagnostics_page.js
 node tests/test_alarm_page.js
+node tests/test_log_page.js
 ```
 
 The tests compile the real `DailyRestart.h` policy and extract the actual
@@ -19,6 +20,12 @@ radio reset without ESP32 reboot/flash/IR, HTTP/OTA restoration, a disconnect
 and reconnect between iterations, stale holds, OTA guards, long uptimes and
 watchdog initialization/failure. The simulated watchdog checks configuration
 and feeding; an actual hardware timeout/reset is not induced by host tests.
+
+Log checks cover the real fixed-capacity ring, chronological overwrite,
+checksums/schema rejection, restoring from a flash-only snapshot after RAM loss,
+boot numbering, write deadlines/busy guards, failed-write backoff, streamed JSON
+and read-only retrieval. Browser checks cover ordering, missing clock/RSSI,
+storage warnings, download link, timeout recovery and no background polling.
 
 The host tests also compile the real one-shot alarm scheduler and extract its
 HTTP handlers: independent Set/Cancel actions, today/tomorrow and year/leap-date

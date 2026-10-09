@@ -7,9 +7,10 @@ import subprocess
 root = Path(__file__).resolve().parents[1]
 sketch = root / 'firmware/OnkyoRemote'
 source = (sketch / 'OnkyoRemote.ino').read_text(encoding='utf-8')
-functions = ('restartUptimeMs', 'recordUserActivity', 'onTimeSynchronized',
+functions = ('restartUptimeMs', 'recordUserActivity', 'recordLogEvent', 'saveEventLog', 'startEventLog', 'maintainEventLog',
+             'onTimeSynchronized',
              'startTimeSynchronization', 'onWiFiDiagnostics', 'resetReasonName', 'handleDiagnostics',
-             'handleDiagnosticsPage', 'handleDailyRestart', 'stopVolume',
+             'handleDiagnosticsPage', 'handleLogPage', 'handleEventLog', 'handleDailyRestart', 'stopVolume',
              'readVolumeSession', 'handleVolumePress', 'expireVolumeHold', 'handleVolumeStart',
              'handleVolumeKeepalive', 'handleVolumeStop', 'repeatHeldVolume', 'handleVersion',
              'handleRoot', 'handleManifest', 'handleIcon', 'startLoopWatchdog', 'feedLoopWatchdog',
@@ -51,6 +52,16 @@ if result.returncode:
     raise SystemExit(result.returncode)
 checked = 0
 for line in result.stdout.splitlines():
+    if line.startswith('EVENT_LOG:'):
+        data = json.loads(line.split(':', 1)[1])
+        assert data['capacity'] == 48 and data['boot'] == 2 and data['storageReady']
+        assert data['saveFailures'] == 0 and not data['pending']
+        assert [entry['event'] for entry in data['entries']] == ['boot', 'wifi_disconnected', 'manual_restart', 'boot']
+        assert data['entries'][0]['resetReason'] == 'software'
+        assert data['entries'][1]['detail'] == 201 and data['entries'][1]['epochSeconds'] is None
+        assert data['entries'][-1]['boot'] == 2
+        assert not any(f'"{key}"' in line.lower() for key in ('password','ssid','otapassword','wifissid'))
+        continue
     if line.startswith('ALARMS:'):
         data = json.loads(line.split(':', 1)[1])
         assert data['clockReady'] and data['storageReady']

@@ -19,6 +19,8 @@
 #include "DeviceDiagnostics.h"
 #include "WiFiRecovery.h"
 #include "DiagnosticsPage.h"
+#include "EventLog.h"
+#include "LogPage.h"
 #include "AlarmScheduler.h"
 #include "AlarmPage.h"
 
@@ -97,6 +99,12 @@ WebServer server(80);
 Preferences preferences;
 Preferences restartPreferences;
 Preferences alarmPreferences;
+Preferences logPreferences;
+EventLog eventLog;
+bool logStorageReady = false;
+uint32_t logSaveFailures = 0;
+uint64_t lastHealthLogMs = 0, lastSlowLogMs = 0;
+bool clockLogged = false;
 AlarmScheduler alarms;
 DailyRestartPolicy dailyRestart;
 std::atomic<bool> timeSynchronized{false};
@@ -133,6 +141,63 @@ uint64_t restartUptimeMs() {
 
 void recordUserActivity() {
   dailyRestart.recordActivity(restartUptimeMs());
+}
+
+void recordLogEvent(LogEvent event, int32_t detail = 0, bool important = false) {
+  LogEntry entry{};
+  entry.event = event; entry.detail = detail;
+  entry.uptimeSeconds = static_cast<uint32_t>(restartUptimeMs() / 1000);
+  const time_t epoch = time(nullptr);
+  entry.epochSeconds = timeSynchronized.load() && epoch >= 1704067200 ? static_cast<uint32_t>(epoch) : 0;
+  entry.freeBytes = ESP.getFreeHeap(); entry.largestBlockBytes = ESP.getMaxAllocHeap();
+  entry.loopMs = deviceDiagnostics.maxLoopMs;
+  entry.rssiDbm = WiFi.status() == WL_CONNECTED ? static_cast<int16_t>(WiFi.RSSI()) : 0;
+  eventLog.append(entry, important);
+  Serial.printf("LOG boot=%lu uptime=%lu event=%s detail=%ld rssi=%d heap=%lu block=%lu loop=%lu\n",
+      static_cast<unsigned long>(eventLog.boot()), static_cast<unsigned long>(entry.uptimeSeconds), logEventName(event),
+      static_cast<long>(detail), entry.rssiDbm, static_cast<unsigned long>(entry.freeBytes),
+      static_cast<unsigned long>(entry.largestBlockBytes), static_cast<unsigned long>(entry.loopMs));
+}
+
+void saveEventLog(bool force = false) {
+  const uint64_t now = restartUptimeMs();
+  if (!logStorageReady || !eventLog.shouldSave(now, force,
+      !force && (otaInProgress || heldVolumeCommand != nullptr || learningCommand != nullptr || alarms.pending()))) return;
+  const LogSnapshot snapshot = eventLog.snapshot();
+  const bool saved = logPreferences.putBytes("snapshot", &snapshot, sizeof(snapshot)) == sizeof(snapshot);
+  eventLog.saveResult(now, saved);
+  if (!saved) {
+    ++logSaveFailures;
+    recordLogEvent(LogEvent::StorageError, static_cast<int32_t>(logSaveFailures), true);
+  }
+}
+
+void startEventLog() {
+  logStorageReady = logPreferences.begin("onkyo-log", false);
+  if (logStorageReady && logPreferences.isKey("snapshot")) {
+    LogSnapshot saved{};
+    if (logPreferences.getBytesLength("snapshot") != sizeof(saved) ||
+        logPreferences.getBytes("snapshot", &saved, sizeof(saved)) != sizeof(saved) || !eventLog.restore(saved)) ++logSaveFailures;
+  }
+  eventLog.beginBoot(restartUptimeMs());
+  recordLogEvent(LogEvent::Boot, static_cast<int32_t>(esp_reset_reason()), true);
+  if (!logStorageReady || logSaveFailures != 0) recordLogEvent(LogEvent::StorageError, 0, true);
+  saveEventLog(true);
+}
+
+void maintainEventLog(uint64_t loopMs) {
+  const uint64_t now = restartUptimeMs();
+  if (timeSynchronized.load() && !clockLogged) {
+    clockLogged = true; recordLogEvent(LogEvent::ClockReady);
+  }
+  if (loopMs >= 1000 && (lastSlowLogMs == 0 || now - lastSlowLogMs >= LOG_IMPORTANT_INTERVAL_MS) && !otaInProgress) {
+    lastSlowLogMs = now;
+    recordLogEvent(LogEvent::SlowLoop, loopMs > INT32_MAX ? INT32_MAX : static_cast<int32_t>(loopMs), true);
+  }
+  if (now - lastHealthLogMs >= LOG_CHECKPOINT_MS) {
+    lastHealthLogMs = now; recordLogEvent(LogEvent::Health);
+  }
+  saveEventLog();
 }
 
 void onWiFiDiagnostics(WiFiEvent_t event, WiFiEventInfo_t info) {
@@ -204,6 +269,40 @@ void handleDiagnosticsPage() {
   server.send_P(200, "text/html; charset=utf-8", DIAGNOSTICS_PAGE);
 }
 
+void handleLogPage() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send_P(200, "text/html; charset=utf-8", LOG_PAGE);
+}
+
+void handleEventLog() {
+  // Stream bounded records instead of constructing a large String on the heap.
+  server.sendHeader("Cache-Control", "no-store");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json; charset=utf-8", "");
+  char body[512];
+  snprintf(body, sizeof(body), "{\"version\":\"%s\",\"boot\":%lu,\"capacity\":%lu,\"storageReady\":%s,"
+      "\"saveFailures\":%lu,\"pending\":%s,\"lastSavedUptimeSeconds\":%llu,\"entries\":[",
+      ONKYO_FIRMWARE_VERSION, static_cast<unsigned long>(eventLog.boot()), static_cast<unsigned long>(EVENT_LOG_CAPACITY),
+      logStorageReady ? "true" : "false", static_cast<unsigned long>(logSaveFailures), eventLog.pending() ? "true" : "false",
+      static_cast<unsigned long long>(eventLog.lastSavedMs() / 1000));
+  server.sendContent(body);
+  for (uint32_t i = 0; i < eventLog.count(); ++i) {
+    const LogEntry &entry = eventLog.at(i);
+    char epoch[16] = "null", rssi[16] = "null";
+    if (entry.epochSeconds != 0) snprintf(epoch, sizeof(epoch), "%lu", static_cast<unsigned long>(entry.epochSeconds));
+    if (entry.rssiDbm != 0) snprintf(rssi, sizeof(rssi), "%d", entry.rssiDbm);
+    snprintf(body, sizeof(body), "%s{\"boot\":%lu,\"uptimeSeconds\":%lu,\"epochSeconds\":%s,\"event\":\"%s\","
+        "\"detail\":%ld,\"resetReason\":\"%s\",\"rssiDbm\":%s,\"freeBytes\":%lu,\"largestBlockBytes\":%lu,\"loopMs\":%lu}",
+        i == 0 ? "" : ",", static_cast<unsigned long>(entry.boot), static_cast<unsigned long>(entry.uptimeSeconds),
+        epoch, logEventName(entry.event), static_cast<long>(entry.detail),
+        entry.event == LogEvent::Boot ? resetReasonName(static_cast<esp_reset_reason_t>(entry.detail)) : "",
+        rssi, static_cast<unsigned long>(entry.freeBytes), static_cast<unsigned long>(entry.largestBlockBytes),
+        static_cast<unsigned long>(entry.loopMs));
+    server.sendContent(body);
+  }
+  server.sendContent("]}"); server.sendContent("");
+}
+
 void onTimeSynchronized(struct timeval *timeValue) {
   // NTP runs in another task. No flash writes or control changes in this callback.
   timeSynchronized.store(timeValue != nullptr && timeValue->tv_sec >= 1704067200);
@@ -235,6 +334,8 @@ void handleDailyRestart() {
     return;
   }
   dailyRestart.markRestart(day);
+  recordLogEvent(LogEvent::DailyRestart, static_cast<int32_t>(day), true);
+  saveEventLog(true);
   digitalWrite(IR_SEND_PIN, LOW);
   Serial.printf("Daily idle restart: %04d-%02d-%02d %02d:%02d Europe/Warsaw\n",
                 localTime.tm_year + 1900, localTime.tm_mon + 1, localTime.tm_mday,
@@ -682,6 +783,8 @@ void handleRestartRequest() {
 void handleRequestedRestart() {
   if (!manualRestartRequested || otaInProgress || restartUptimeMs() < manualRestartAtMs) return;
   stopVolume();
+  recordLogEvent(LogEvent::ManualRestart, 0, true);
+  saveEventLog(true);
   digitalWrite(IR_SEND_PIN, LOW);
   ESP.restart();
 }
@@ -924,6 +1027,7 @@ void startLoopWatchdog() {
     loopWatchdogReady = result == ESP_OK;
   }
   if (!loopWatchdogReady) Serial.println(F("Cannot enable loop watchdog."));
+  recordLogEvent(loopWatchdogReady ? LogEvent::WatchdogReady : LogEvent::WatchdogFailed, LOOP_WATCHDOG_MS, true);
 }
 
 void feedLoopWatchdog() {
@@ -940,16 +1044,21 @@ void startOta() {
     alarms.cancelSource();
     recordUserActivity();
     feedLoopWatchdog();
+    recordLogEvent(LogEvent::OtaStart, 0, true);
+    saveEventLog(true);
   });
   // OTA.handle() stays inside one loop iteration for the whole transfer.
   // Feed only while bytes are arriving; a stalled transfer remains bounded.
   ArduinoOTA.onProgress([](unsigned int, unsigned int) { feedLoopWatchdog(); });
   ArduinoOTA.onEnd([]() {
     otaInProgress = false;
+    recordLogEvent(LogEvent::OtaEnd, 0, true);
+    saveEventLog(true);
     recordUserActivity();
   });
-  ArduinoOTA.onError([](ota_error_t) {
+  ArduinoOTA.onError([](ota_error_t error) {
     otaInProgress = false;
+    recordLogEvent(LogEvent::OtaError, static_cast<int32_t>(error), true);
     recordUserActivity();
   });
   ArduinoOTA.begin();
@@ -962,6 +1071,7 @@ void handleWiFiRecovery() {
   const uint64_t now = restartUptimeMs();
   if (deviceDiagnostics.disconnectPending.exchange(false)) {
     stopVolume();
+    recordLogEvent(LogEvent::WiFiDisconnected, static_cast<int32_t>(deviceDiagnostics.lastDisconnectReason.load()), true);
     wifiRecovery.interrupted(now);
   }
   const bool connected = WiFi.status() == WL_CONNECTED;
@@ -975,12 +1085,15 @@ void handleWiFiRecovery() {
     startOta();
     server.begin();
     networkServicesStarted = true;
+    recordLogEvent(LogEvent::WiFiConnected, static_cast<int32_t>(deviceDiagnostics.connections.load()), true);
     Serial.print("Wi-Fi connected. Open http://");
     Serial.println(WiFi.localIP());
   } else if (action == WiFiRecovery::Action::Retry) {
+    recordLogEvent(LogEvent::WiFiRetry, static_cast<int32_t>(wifiRecovery.retries), true);
     Serial.println(F("Wi-Fi recovery: retrying connection."));
     WiFi.reconnect();
   } else if (action == WiFiRecovery::Action::ResetRadio) {
+    recordLogEvent(LogEvent::RadioReset, static_cast<int32_t>(wifiRecovery.radioResets), true);
     Serial.println(F("Wi-Fi recovery: restarting radio without rebooting ESP32."));
     // Keep credentials and the running clock; re-create sockets after GOT_IP.
     WiFi.disconnect(true, false);
@@ -996,6 +1109,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println(F("Onkyo IR Remote firmware v" ONKYO_FIRMWARE_VERSION));
+  startEventLog();
   startLoopWatchdog();
   restartStorageReady = restartPreferences.begin("onkyo-restart", false);
   dailyRestart.begin(restartUptimeMs(), restartStorageReady ? restartPreferences.getUInt("restartDay", 0) : 0);
@@ -1048,6 +1162,8 @@ void setup() {
   server.on("/version", HTTP_GET, handleVersion);
   server.on("/diagnostics", HTTP_GET, handleDiagnostics);
   server.on("/status", HTTP_GET, handleDiagnosticsPage);
+  server.on("/log", HTTP_GET, handleLogPage);
+  server.on("/logs", HTTP_GET, handleEventLog);
   server.on("/restart", HTTP_POST, handleRestartRequest);
   server.on("/schedule", HTTP_GET, []() {
     server.sendHeader("Cache-Control", "no-store");
@@ -1086,6 +1202,7 @@ void loop() {
   if (elapsed > deviceDiagnostics.maxLoopMs) {
     deviceDiagnostics.maxLoopMs = elapsed > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(elapsed);
   }
+  maintainEventLog(elapsed);
   feedLoopWatchdog();
   delay(1); // Allow the idle/system tasks to run even without HTTP traffic.
 }

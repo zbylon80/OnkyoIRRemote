@@ -3,6 +3,26 @@
 Firmware versions use `MAJOR.MINOR.PATCH`. Entries marked **Unreleased** describe
 prepared changes; they do not mean that a device has been updated.
 
+## 1.3.4 — 2026-10-09
+
+- Add a fixed-size 48-event log with boot/reset causes, Wi-Fi recovery, OTA,
+  planned restarts, clock sync, slow loops and five-minute heap/RSSI samples.
+  Emit new records to USB Serial; keep callbacks free of flash/log-ring writes.
+- Checkpoint the checksummed ring to NVS across power cycles, every five minutes
+  or at most once a minute for important events. Defer periodic writes during
+  holds, learning, OTA and alarm source delays; force saves at boot/planned resets
+  and OTA boundaries. Storage failure keeps RAM logging and does not block IR.
+- Add a read-only `/log` page and streamed `/logs` JSON download, linked from
+  diagnostics. No credentials/client data/IR commands or automatic polling.
+- Test ring rotation, persistence, corruption, boot IDs, write guards/backoff,
+  JSON, page ordering, empty states and timeout recovery. Unsaved records may
+  be lost on a crash or sudden power cut; no crash-time flash writing is attempted.
+- Passed host/browser checks and ESP32 compilation, uploaded successfully by OTA,
+  verified root/log HTTP 200, watchdog and clock, and retained all prior events
+  plus manual-restart cause across an actual controlled restart. Stored alarm
+  settings were unchanged. Hard power-cycle restoration is simulated in tests.
+  Confirmed the automatic NVS checkpoint at 61 seconds with no write errors.
+
 ## 1.3.3 — 2026-10-09
 
 - Start Wi-Fi without an indefinite boot wait. Retry every 15 seconds, cycle

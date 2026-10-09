@@ -92,6 +92,22 @@ API without a session token is rejected.
 
 ## Stability diagnostics
 
+Starting with 1.3.4, **Historia zdarzeń** in diagnostics opens `/log`; `/logs`
+downloads JSON for the last 48 events. Records cover numbered boots/reset causes,
+Wi-Fi (the latest disconnect reason consumed by the loop), recovery, OTA,
+manual/daily restarts, clock sync, slow loops and five-minute health samples.
+Each includes uptime, NTP epoch (null before sync), RSSI, free heap, largest
+block and maximum loop duration. New events also go to USB Serial at 115200.
+
+The RAM ring is checkpointed to NVS every five minutes, or at most once per
+minute after important events. Periodic writes defer during OTA, IR learning,
+holds and the alarm source delay; boots and planned restart/OTA force a save.
+Unexpected power loss/crashes can lose the unsaved tail. The next boot restores
+the saved history and adds its reset reason. Corrupt snapshots are rejected;
+storage errors leave the remote working with RAM logging and a visible warning.
+Event records contain no credentials, SSIDs, remote commands or client data. Reads do
+not write flash, change inactivity timers or send IR.
+
 Starting with 1.3.3, startup does not wait indefinitely for Wi-Fi. Connection
 attempts are repeated every 15 seconds; after a minute without an IP address,
 the radio is restarted. HTTP and OTA are recreated when connectivity returns.
